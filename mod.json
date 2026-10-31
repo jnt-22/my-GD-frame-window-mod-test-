@@ -8,7 +8,7 @@
 	},
 	"id": "erik.frame-window-counter",
 	"name": "Frame Window Counter",
-	"version": "v0.2.0",
+	"version": "v0.2.2",
 	"developer": "Erik",
 	"description": "Shows how many clicks fall into each frame-window bucket (10+, 8-10, ... 0-1), resets every attempt.",
 	"settings": {
@@ -117,12 +117,6 @@
 			"default": 100,
 			"min": 10,
 			"max": 100
-		},
-		"demo-mode": {
-			"type": "bool",
-			"name": "Demo data",
-			"description": "Only for testing the display: fills the counter with FAKE random windows on every click. Leave off for real measuring.",
-			"default": false
 		}
 	}
 }
