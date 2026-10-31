@@ -1,0 +1,98 @@
+{
+	"geode": "5.11.2",
+	"gd": {
+		"win": "2.2081",
+		"android": "2.2081",
+		"mac": "2.2081",
+		"ios": "2.2081"
+	},
+	"id": "erik.frame-window-counter",
+	"name": "Frame Window Counter",
+	"version": "v0.1.0",
+	"developer": "Erik",
+	"description": "Shows how many clicks fall into each frame-window bucket (10+, 8-10, ... 0-1), resets every attempt.",
+	"settings": {
+		"enabled": {
+			"type": "bool",
+			"name": "Enabled",
+			"description": "Show the frame window counter during levels.",
+			"default": true
+		},
+		"show-counts": {
+			"type": "bool",
+			"name": "Show counts",
+			"description": "Show the number column on the right. Turn off to show only the frame ranges.",
+			"default": true
+		},
+		"tps": {
+			"type": "int",
+			"name": "TPS (ticks per second)",
+			"description": "Physics speed used to turn frames into milliseconds. 240 = normal GD, 480 = double. Example: a 10 frame window is 41.67 ms at 240 TPS (24Hz frame perfect) and 20.83 ms at 480 TPS (48Hz).",
+			"default": 240,
+			"min": 1,
+			"max": 10000
+		},
+		"show-hardest": {
+			"type": "bool",
+			"name": "Show hardest click",
+			"description": "Off: the popup shows the latest click. On: it shows the smallest window of the attempt.",
+			"default": false
+		},
+		"show-circles": {
+			"type": "bool",
+			"name": "Show circles on the level",
+			"description": "Draw a circle with the frame number where the player was at every click. The color matches the row in the counter. They disappear when you start a new attempt.",
+			"default": true
+		},
+		"show-hz": {
+			"type": "bool",
+			"name": "Show Hz line",
+			"description": "Add a third line to the popup with the frame-perfect tick rate (for example 60Hz for a 4 frame window at 240 TPS).",
+			"default": false
+		},
+		"popup-stay": {
+			"type": "bool",
+			"name": "Keep popup until next click",
+			"description": "On: the popup does not fade, it stays until your next click (like the reference video). Off: it fades out.",
+			"default": false
+		},
+		"popup-hold": {
+			"type": "float",
+			"name": "Popup: time shown (s)",
+			"description": "How long the popup stays fully visible after a click before it starts fading.",
+			"default": 0.3,
+			"min": 0.0,
+			"max": 5.0
+		},
+		"popup-fade": {
+			"type": "float",
+			"name": "Popup: fade time (s)",
+			"description": "How long the fade-out takes.",
+			"default": 0.2,
+			"min": 0.0,
+			"max": 2.0
+		},
+		"hud-scale": {
+			"type": "float",
+			"name": "Size",
+			"description": "Size of the counter on screen.",
+			"default": 1.0,
+			"min": 0.3,
+			"max": 3.0
+		},
+		"hud-opacity": {
+			"type": "int",
+			"name": "Opacity (%)",
+			"description": "How visible the counter is.",
+			"default": 100,
+			"min": 10,
+			"max": 100
+		},
+		"demo-mode": {
+			"type": "bool",
+			"name": "Demo data",
+			"description": "v0.1 only: fills the counter with FAKE random windows on every click so you can test the display. Real measuring is not built yet.",
+			"default": true
+		}
+	}
+}
