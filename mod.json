@@ -8,7 +8,7 @@
 	},
 	"id": "erik.frame-window-counter",
 	"name": "Frame Window Counter",
-	"version": "v0.1.0",
+	"version": "v0.2.0",
 	"developer": "Erik",
 	"description": "Shows how many clicks fall into each frame-window bucket (10+, 8-10, ... 0-1), resets every attempt.",
 	"settings": {
@@ -31,6 +31,28 @@
 			"default": 240,
 			"min": 1,
 			"max": 10000
+		},
+		"hazard-distance": {
+			"type": "float",
+			"name": "Hazard distance",
+			"description": "A click only counts if a hazard (or block) is at most this many units ahead of the wave. 60 = 2 blocks. Regular spam with nothing close is not counted.",
+			"default": 60.0,
+			"min": 10.0,
+			"max": 300.0
+		},
+		"include-blocks": {
+			"type": "bool",
+			"name": "Count blocks as hazards",
+			"description": "The wave also dies on the side of blocks, so blocks count as hazards too. Turn off to use only spikes and saws. Takes effect when you enter a level.",
+			"default": true
+		},
+		"wave-hitbox": {
+			"type": "float",
+			"name": "Wave hitbox size",
+			"description": "Size of the wave's hitbox in units (mini wave is scaled down automatically). Change it if the numbers do not match what you expect.",
+			"default": 10.0,
+			"min": 2.0,
+			"max": 30.0
 		},
 		"show-hardest": {
 			"type": "bool",
@@ -72,6 +94,14 @@
 			"min": 0.0,
 			"max": 2.0
 		},
+		"row-spacing": {
+			"type": "float",
+			"name": "Row spacing",
+			"description": "Space between the rows of the counter. Smaller = takes fewer pixels on screen.",
+			"default": 13.0,
+			"min": 8.0,
+			"max": 24.0
+		},
 		"hud-scale": {
 			"type": "float",
 			"name": "Size",
@@ -91,8 +121,8 @@
 		"demo-mode": {
 			"type": "bool",
 			"name": "Demo data",
-			"description": "v0.1 only: fills the counter with FAKE random windows on every click so you can test the display. Real measuring is not built yet.",
-			"default": true
+			"description": "Only for testing the display: fills the counter with FAKE random windows on every click. Leave off for real measuring.",
+			"default": false
 		}
 	}
 }

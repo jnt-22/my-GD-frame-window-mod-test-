@@ -45,6 +45,15 @@ int main() {
     CHECK(formatFramesLine(2.1875) == "2.19 FRAMES");
     CHECK(formatMsLine(framesToMs(3.3125, 240)) == "13.8 MS");    // video: 3.31 FRAMES / 13.8 MS
     CHECK(formatMsLine(framesToMs(3.125, 240)) == "13.02 MS");    // video: 3.13 FRAMES / 13.02 MS
+    // A window of 0 (no click time would have worked) is counted in the 0-1 row.
+    CHECK(formatFpHz(0.0) == "--Hz");
+    CHECK(formatMsLine(0.0) == "0 MS");
+    CHECK(formatFramesLine(0.0) == "0 FRAMES");
+    {
+        Stats z;
+        z.add(0.0, 240.0);
+        CHECK(z.hasData && z.counts[8] == 1);
+    }
     // Round trip.
     CHECK(std::fabs(msToFrames(framesToMs(7, 240), 240) - 7.0) < 1e-9);
     // Same click, different TPS: 9 frames @240 is 18 frames @480 -> different bucket.

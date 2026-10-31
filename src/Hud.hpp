@@ -82,8 +82,23 @@ public:
     }
 
     // Updates the rows (labels + counts). Does not touch the popup.
-    void refresh(fwc::Stats const& stats, bool showCounts, bool demo, double scale, int64_t opacityPercent) {
+    // Moves every row (and the popup lines under them) so rows are `rowHeight` apart.
+    void applyRowSpacing(float rowHeight) {
+        for (int i = 0; i < fwc::kBucketCount; i++) {
+            float y = -static_cast<float>(i) * rowHeight;
+            m_names[i]->setPositionY(y);
+            m_counts[i]->setPositionY(y);
+        }
+        float footerY = -static_cast<float>(fwc::kBucketCount) * rowHeight - rowHeight * 0.35f;
+        m_framesLabel->setPositionY(footerY);
+        m_msLabel->setPositionY(footerY - rowHeight);
+        m_hzLabel->setPositionY(footerY - 2.f * rowHeight);
+        m_demoLabel->setPositionY(footerY - 3.f * rowHeight);
+    }
+
+    void refresh(fwc::Stats const& stats, bool showCounts, bool demo, double scale, int64_t opacityPercent, double rowSpacing) {
         this->setScale(static_cast<float>(scale));
+        this->applyRowSpacing(static_cast<float>(rowSpacing));
         GLubyte opacity = toOpacity(opacityPercent);
 
         for (int i = 0; i < fwc::kBucketCount; i++) {

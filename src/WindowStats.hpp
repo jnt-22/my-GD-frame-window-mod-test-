@@ -89,6 +89,7 @@ inline std::string formatMs(double windowMs) {
 
 // "24Hz" when it is a whole number, "27~Hz" when it had to be rounded.
 inline std::string formatFpHz(double windowMs) {
+    if (!(windowMs > 0.0)) return "--Hz"; // a window of 0 is never frame perfect at any rate
     double hz = frameperfectHz(windowMs);
     double rounded = std::round(hz);
     char buf[48];
@@ -108,7 +109,7 @@ struct Stats {
 
     // One click whose window lasted `windowMs`, counted at `tps` ticks per second.
     void add(double windowMs, double tps) {
-        if (!(windowMs > 0.0) || !(tps > 0.0)) return; // ignore garbage
+        if (!(windowMs >= 0.0) || !(tps > 0.0)) return; // ignore garbage (a window of 0 is real: no timing works)
         counts[bucketForFrames(msToFrames(windowMs, tps))]++;
         lastMs = windowMs;
         hardestMs = std::min(hardestMs, windowMs);

@@ -18,12 +18,23 @@ Everything depends on the **TPS** setting:
 
 (`~` means the Hz had to be rounded.)
 
-## Status: v0.1 (display only)
+## Status: v0.2 (real measuring, experimental)
 
-* The on-screen counter, the buckets, the per-attempt reset and the settings all work.
-* **Real window measuring is NOT built yet.** v0.1 feeds the counter FAKE random windows
-  ("Demo data" setting, marked `DEMO DATA` on screen) so you can test that the mod loads
-  and the display looks right on 2.2081.
+* **Real, live measuring for the wave.** On every click the mod asks: "if this click had come a bit
+  earlier or later, would the wave still get past the hazards in front of it?" The range of click
+  times that still work is the window (ms), times the TPS is the frame count.
+* **Only clicks with a hazard close ahead count.** A spike, saw or block must be at most 60 units
+  (2 blocks) ahead of the wave ("Hazard distance" setting). Regular spam with nothing close is ignored.
+* Both pressing and letting go count, because both turn the wave.
+* Other gamemodes are not measured yet (nothing is counted outside the wave).
+* Turn on **Demo data** to get fake random windows instead (only for testing the display).
+
+### Known limits (v0.2)
+* Only the hazards right ahead are checked, not your future clicks, so a window can be larger than
+  what a long spam sequence really allows.
+* Objects moved by triggers are treated as standing still. Slopes are ignored.
+* The wave hitbox size (10 units, scaled for mini) is my best estimate: if your numbers differ from
+  what you expect, change **Wave hitbox size**.
 
 ## How to build it without installing anything (GitHub Actions)
 
@@ -39,12 +50,13 @@ If a build fails, open the failed step, copy the red error text and send it to m
 
 ## Settings
 
-Enabled, Show counts (right-hand number column), TPS (240 normal, 480 double, any number works),
-Show hardest click (popup shows the smallest window instead of the latest click), Show circles on the level, Show Hz line, Keep popup until next click, popup time shown (0.3 s) and fade time (0.2 s), Size, Opacity, Demo data.
+Enabled, Hazard distance (60), Count blocks as hazards, Wave hitbox size, Show counts (right-hand number column), TPS (240 normal, 480 double, any number works),
+Show hardest click (popup shows the smallest window instead of the latest click), Show circles on the level, Show Hz line, Keep popup until next click, popup time shown (0.3 s) and fade time (0.2 s), Row spacing (13 default, smaller = more compact), Size, Opacity, Demo data.
 
 ## Files
 
-* `src/WindowStats.hpp` – the counting logic (buckets, hardest window). Has tests in `tests/`.
+* `src/WindowStats.hpp` – the counting logic (buckets, number formatting). Tests in `tests/test_stats.cpp`.
+* `src/WindowMeasure.hpp` – the wave measuring (ghost wave, hazards, 60 unit rule). Tests in `tests/test_measure.cpp`.
 * `src/Hud.hpp` – the rainbow box on screen.
 * `src/main.cpp` – hooks into the game: adds the box, resets it each attempt, watches clicks.
 * `mod.json` – the mod's name, GD version and settings.

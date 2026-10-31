@@ -8,7 +8,7 @@ else()
 endif()
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 
-project(FrameWindowCounter VERSION 0.1.0)
+project(FrameWindowCounter VERSION 0.2.0)
 
 # Add all source files inside src (recursively)
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS src/*.cpp)
