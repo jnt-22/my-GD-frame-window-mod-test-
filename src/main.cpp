@@ -256,7 +256,7 @@ class $modify(FWCBaseGameLayer, GJBaseGameLayer) {
             if (!down) return;
             // A mouse/touch click can arrive as "player 2" even with only one player; player 2 then
             // sits somewhere else on the level. Outside dual mode it is always player 1.
-            auto player = (isPlayer1 || !m_isDualMode) ? m_player1 : m_player2;
+            auto player = (isPlayer1 || !m_gameState.m_isDualMode) ? m_player1 : m_player2;
             if (!player) player = m_player1;
             layer->recordWindowFrames(fakeWindowFrames(), player->getPosition());
             return;
@@ -264,7 +264,7 @@ class $modify(FWCBaseGameLayer, GJBaseGameLayer) {
 
         // Real measuring: the wave only. Both pressing and letting go turn the wave.
         if (!m_player1 || !m_player1->m_isDart) return;
-        if (!isPlayer1 && m_isDualMode) return; // only player 1's wave
+        if (!isPlayer1 && m_gameState.m_isDualMode) return; // only player 1's wave
         layer->measureAndRecord(down);
     }
 };
