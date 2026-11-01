@@ -475,10 +475,14 @@ inline ClickResult measureClick(ShapeIndex const& index, History const& h, doubl
     // Nothing survived, even though the player really did click and (usually) live: my model is a
     // little too strict about the hitbox. Try again with a slightly smaller hitbox before giving up
     // and calling it a true 0. This is what made normal clicks show up as "0 frames".
-    if (win.seconds <= 0.0) {
-        for (double shrink : {0.85, 0.7}) {
+    const double tolerance = 0.002;
+    auto valid = [&](Window const& w) { return w.seconds > 0.0 && w.early <= tolerance && w.late >= -tolerance; };
+    if (!valid(win)) {
+        // The real click survived, so a valid window must contain it. Try smaller hitboxes: the
+        // slopes / odd shapes I model too strictly then stop killing the ghost.
+        for (double shrink : {0.85, 0.7, 0.55, 0.4}) {
             Window retry = measureWindow(path, m, cfg.half * shrink, xEnd, cfg.maxShift, step, horizonTime);
-            if (retry.seconds > 0.0) { win = retry; break; }
+            if (valid(retry)) { win = retry; break; }
         }
     }
     // The ghost survived the whole search range both ways: nothing the mod can see limits this click
@@ -493,8 +497,7 @@ inline ClickResult measureClick(ShapeIndex const& index, History const& h, doubl
     // The player really survived this click, so the real click time (delta 0) MUST lie inside the
     // window. If the measured window is empty or misses 0, my model disagrees with the game (a hazard
     // I misjudge): showing it would be a wrong number, so skip the click (reason 5).
-    const double tolerance = 0.002;
-    if (win.seconds <= 0.0 || win.early > tolerance || win.late < -tolerance) {
+    if (!valid(win)) {
         result.reason = 5;
         return result;
     }
