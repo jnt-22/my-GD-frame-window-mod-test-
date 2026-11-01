@@ -286,21 +286,24 @@ inline Trajectory trajectoryFrom(History const& h, double clickTime, double look
     }
     if (t.arc.size() < 3) return t;
 
-    // Stop the path at the landing: once the player comes back to (roughly) where it launched and
-    // flattens out, this click's influence is over and anything beyond is the NEXT click's business.
-    // (For hold modes - ship/wave - there is no landing and the path just runs to lookAhead.)
-    double vy0 = t.arc[1].y - t.arc[0].y;      // vertical step right after the click
-    if (std::fabs(vy0) > 0.05) {
-        int sign = vy0 > 0 ? 1 : -1;           // which way the jump first went
-        for (size_t j = 2; j + 1 < t.arc.size(); j++) {
-            double back = (t.arc[j].y - t.yc) * sign;      // how far above the launch, in jump dir
-            double stepY = (t.arc[j + 1].y - t.arc[j].y) * sign;
-            if (back <= 0.5 && stepY <= 0.05) {            // returned to launch height and flattened
-                t.arc.resize(j + 1);
+    // Cut the path at the NEXT input, so this window reflects only THIS click. The next click (and,
+    // for a jump, the landing) shows up as a SUDDEN change in the vertical step over a single tick -
+    // unlike gravity, which bends the path only a tiny amount each tick. On a wave this ends the
+    // straight segment at the next flip; on a cube it ends the arc where it lands. Anything past that
+    // is the next click's business, so sliding it would be meaningless (that is what made a wave read
+    // as "33 frames": the whole zig-zag of several clicks was being slid as one).
+    {
+        double prevStep = t.arc[1].y - t.arc[0].y; // this click's own kick (tick 0 -> 1)
+        for (size_t j = 2; j < t.arc.size(); j++) {
+            double step = t.arc[j].y - t.arc[j - 1].y;
+            if (std::fabs(step - prevStep) > 0.6) {    // a sudden snap: next click, flip, or landing
+                t.arc.resize(j);                       // keep up to (not including) the snap
                 break;
             }
+            prevStep = step;
         }
     }
+    if (t.arc.size() < 2) return t;
 
     // Did the click change the motion? A real jump snaps the vertical step; a buffered press that did
     // nothing just keeps the pre-click drift.

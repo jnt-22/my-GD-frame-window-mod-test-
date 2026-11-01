@@ -89,7 +89,12 @@ inline std::string frameMarkerLabel(double frames, bool capped) {
 }
 
 // The two popup lines, in the style of your video: "4 FRAMES" and "16.67 MS".
-inline std::string formatFramesLine(double frames) { return trimNumber(std::round(frames)) + " FRAMES"; }
+// Whole numbers; windows of 13 frames or more show as "13+", like the reference counter.
+inline std::string formatFramesLine(double frames) {
+    long n = std::lround(frames);
+    if (n >= 13) return "13+ FRAMES";
+    return trimNumber(std::round(frames)) + " FRAMES";
+}
 inline std::string formatMsLine(double windowMs)   { return trimNumber(windowMs) + " MS"; }
 
 // "41.67MS"

@@ -8,7 +8,7 @@
 	},
 	"id": "erik.frame-window-counter",
 	"name": "Frame Window Counter",
-	"version": "v1.4.0",
+	"version": "v1.4.2",
 	"developer": "Erik",
 	"description": "Shows the frame window (how many frames you had to click) for every gamemode, sorted into buckets, resetting each attempt.",
 	"settings": {
@@ -72,6 +72,14 @@
 			"default": 0.6,
 			"min": 0.05,
 			"max": 2.0
+		},
+		"panel-key-code": {
+			"type": "int",
+			"name": "Open panel key code",
+			"description": "Key that opens the \\ settings panel. 0 = automatic (backslash). If backslash does not work, press your key in a level, read the number from the \"FWC key\" line in the Geode log, and put it here.",
+			"default": 0,
+			"min": 0,
+			"max": 400
 		},
 		"show-circles": {
 			"type": "bool",

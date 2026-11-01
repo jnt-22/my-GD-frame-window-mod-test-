@@ -354,21 +354,44 @@ namespace fwc {
 }
 
 // ---------------------------------------------------------------------------
-// The "\" key opens and closes the settings panel. We hook UILayer::keyDown, which the game calls
-// for key presses during a level (CCKeyboardDispatcher::dispatchKeyboardMSG has no Windows address).
-// Backslash is 0xDC (VK_OEM_5); 0xE2 (VK_OEM_102) is the same key on some keyboard layouts.
+// The "\" key opens and closes the settings panel. Key presses in a level arrive at PlayLayer::keyDown
+// (and sometimes UILayer::keyDown), so we hook BOTH - whichever one the game delivers the key to will
+// open the panel. (CCKeyboardDispatcher::dispatchKeyboardMSG has no Windows address, so it can't be
+// used.) Backslash is 0xDC (VK_OEM_5); 0xE2 and 92 are the same key on other layouts / via GLFW.
+// If your key gives a different code, read it from the "FWC key" log line and set it as "Open panel
+// key code" in the mod settings.
 // ---------------------------------------------------------------------------
+namespace fwc {
+    inline bool isPanelKey(int k) {
+        int custom = static_cast<int>(Mod::get()->getSettingValue<int64_t>("panel-key-code"));
+        if (custom > 0) return k == custom;
+        return k == 0xDC || k == 0xE2 || k == 92;
+    }
+    // Log the key, and if it is the panel key open/close the panel. Returns true when it handled the
+    // key (so the caller does not pass it on). Ignores a second delivery of the same press.
+    inline bool handlePanelKey(char const* from, int k, double timestamp) {
+        log::info("FWC key ({}): code {}", from, k);
+        if (!isPanelKey(k)) return false;
+        static double last = -1.0;
+        if (last < 0.0 || timestamp - last >= 0.2) {   // debounce double delivery from both layers
+            last = timestamp;
+            if (auto pl = PlayLayer::get()) static_cast<FWCPlayLayer*>(pl)->togglePanel();
+        }
+        return true;
+    }
+}
+
 class $modify(FWCUILayer, UILayer) {
     void keyDown(enumKeyCodes key, double timestamp) {
-        int k = static_cast<int>(key);
-        log::info("Frame Window Counter v1.1.2: key pressed in level, code {}", k);
-        if (k == 0xDC || k == 0xE2) {
-            if (auto pl = PlayLayer::get()) {
-                static_cast<FWCPlayLayer*>(pl)->togglePanel();
-                return;
-            }
-        }
+        if (fwc::handlePanelKey("UILayer", static_cast<int>(key), timestamp)) return;
         UILayer::keyDown(key, timestamp);
+    }
+};
+
+class $modify(FWCPlayLayerKeys, PlayLayer) {
+    void keyDown(enumKeyCodes key, double timestamp) {
+        if (fwc::handlePanelKey("PlayLayer", static_cast<int>(key), timestamp)) return;
+        PlayLayer::keyDown(key, timestamp);
     }
 };
 
