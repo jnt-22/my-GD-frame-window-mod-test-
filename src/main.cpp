@@ -167,11 +167,18 @@ class $modify(FWCPlayLayer, PlayLayer) {
         PendingClick pc;
         pc.tick = m_fields->history.ticks();
         pc.time = m_fields->history.now();
-        double hb = Mod::get()->getSettingValue<double>("player-hitbox");
-        if (!(hb >= 4.0)) hb = 10.0;                       // a missing/zero setting must never mean "no hitbox"
-        double sz = player->m_vehicleSize;
-        if (!(sz > 0.05f)) sz = 1.0;                       // 0 = not set by the game: treat as normal size
-        pc.half = 0.5 * hb * sz;
+        // Hitbox: "auto" (setting 0) uses the game's own rectangle for the player in the current
+        // gamemode and size (cube 30, wave 10, mini wave 6, ...). A number overrides it.
+        double hb = Mod::get()->getSettingValue<double>("player-hitbox-size");
+        if (hb >= 4.0) {
+            double sz = player->m_vehicleSize;
+            if (!(sz > 0.05f)) sz = 1.0;
+            pc.half = 0.5 * hb * sz;
+        } else {
+            double w = player->getObjectRect().size.width;
+            if (!(w >= 2.0)) w = 30.0;
+            pc.half = 0.5 * w;
+        }
         pc.requireChange = requireChange;
         pc.pos = player->getPosition();
 

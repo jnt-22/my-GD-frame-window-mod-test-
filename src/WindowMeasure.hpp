@@ -420,7 +420,7 @@ struct MeasureSettings {
     double hazardDistance = 60.0; // a hazard must be this close ahead (2 blocks) or the click is ignored
     double lookAhead = 300.0;     // how far ahead (units) the ghost has to survive at most
     double maxShift = 0.06;       // how far from the real click we search (seconds, each way)
-    double stepUnits = 1.5;       // ghost step, in units of forward travel (coarser = faster)
+    double stepUnits = 0.75;       // ghost step, in units of forward travel (coarser = faster)
 };
 
 // `requireChange`: for a press, we skip clicks that changed nothing (buffered / airborne press).
