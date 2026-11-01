@@ -143,7 +143,7 @@ class $modify(FWCPlayLayer, PlayLayer) {
         PendingClick pc;
         pc.tick = m_fields->history.ticks();
         pc.time = m_fields->history.now();
-        pc.half = 0.5 * Mod::get()->getSettingValue<double>("wave-hitbox") * player->m_vehicleSize;
+        pc.half = 0.5 * Mod::get()->getSettingValue<double>("hitbox-size") * player->m_vehicleSize;
         pc.requireChange = requireChange;
         pc.pos = player->getPosition();
 
@@ -190,9 +190,10 @@ class $modify(FWCPlayLayer, PlayLayer) {
                                             pc.requireChange, cfg, horizon);
             // Diagnostic: one line per click so we can see where measuring stops.
             // reason: 0 counted, 1 motion invalid, 2 nothing changed, 3 no hazard close ahead.
-            log::info("FWC click: shapes={} historySize={} reason={} nearby={} frames={:.2f} press={}",
+            log::info("FWC click: shapes={} historySize={} reason={} nearby={} frames={:.2f} press={} half={:.1f} early={:.2f}f late={:.2f}f reach={:.0f}",
                       m_fields->shapes.size(), m_fields->history.size(), result.reason,
-                      result.nearby, result.seconds * currentTps(), pc.requireChange);
+                      result.nearby, result.seconds * currentTps(), pc.requireChange, pc.half,
+                      result.early * currentTps(), result.late * currentTps(), result.reach);
             if (result.counted) this->recordWindowFrames(result.seconds * currentTps(), pc.pos);
         }
     }

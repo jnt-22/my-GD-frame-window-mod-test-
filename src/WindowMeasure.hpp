@@ -393,6 +393,8 @@ inline Window measureWindow(std::vector<Shape const*> const& shapes, Motion cons
 struct ClickResult {
     bool counted = false;   // false: ignore this click (no hazard close ahead, nothing changed, ...)
     double seconds = 0.0;   // the window
+    double early = 0.0, late = 0.0; // window edges relative to the real click (diagnostics)
+    double reach = 0.0;     // how far ahead (units) the ghost had to survive
     bool capped = false;
     // Why it was not counted (for the diagnostic log): 0 counted, 1 motion invalid (not enough
     // history / not moving forward), 2 nothing changed (press ignored), 3 no hazard close ahead.
@@ -469,6 +471,9 @@ inline ClickResult measureClick(ShapeIndex const& index, History const& h, doubl
     result.reason = 0;
     result.counted = true;
     result.seconds = win.seconds;
+    result.early = win.early;
+    result.late = win.late;
+    result.reach = reachDist;
     result.capped = win.capped;
     return result;
 }
