@@ -1,17 +1,25 @@
 #pragma once
 
-// Real window measuring for the WAVE. Pure geometry: no Geometry Dash code in here, so it can be
-// tested on any computer (see tests/test_measure.cpp).
+// Real window measuring for EVERY gamemode (cube, ship, ball, UFO, wave, robot, spider, swing).
+// Pure geometry + kinematics: no Geometry Dash code in here, so it can be tested on any computer
+// (see tests/test_measure.cpp).
 //
-// The idea ("ghost wave"):
-//   When you click, we take the wave's position and speed from the last few physics ticks and ask:
-//   "If the click had happened a bit earlier or a bit later (and nothing else changed), would the
-//    wave still get past the hazards in front of it?"
-//   The range of click times that still survive is the window. Its length in seconds is the time
-//   you had to click (ms); times the TPS gives frames.
+// The idea ("ghost"):
+//   We remember where the player was on the last physics ticks, and also the few ticks AFTER a
+//   click (the measurement is done a few ticks late, which is why). From that recording we read:
+//     - how the player was moving just BEFORE the click (speed + how that speed was changing),
+//     - how the player moved just AFTER the click (the jump / flip / thrust the click produced).
+//   Then we ask: "if the click had come a bit earlier or later, and nothing else changed, would the
+//   player still get past the hazards in front?" The range of click times that still survive is the
+//   window. Its length in seconds is the time you had to click (ms); times the TPS gives frames.
 //
-// Simplifications (v0.2): only the wave, only hazards and blocks that stay where they are (no
-// moving objects), slopes are ignored, only the hazards right ahead are checked (not future clicks).
+//   Because the motion is read from the recording and not hard-coded, the SAME code handles all
+//   gamemodes: for the wave it is a straight slope, for a cube a jump arc, for a ship a curve, etc.
+//
+// Simplifications: objects that move during the level are treated as standing still; slopes are
+// ignored; only the hazards right ahead are checked (your later clicks are not taken into account,
+// so a window can read larger than a long spam sequence really allows). Spider teleports and very
+// sharp motion are handled only roughly.
 
 #include <algorithm>
 #include <array>
@@ -35,7 +43,7 @@ struct Shape {
     std::array<Vec, 4> pts{};  // corners in order around the shape
     double minX = 0, minY = 0, maxX = 0, maxY = 0;
     bool aligned = true;       // plain axis-aligned rectangle?
-    bool solid = false;        // block: the wave slides along top/bottom. Hazard: any touch kills.
+    bool solid = false;        // block: the player slides along top/bottom. Hazard: any touch kills.
 
     static Shape rect(double minX, double minY, double maxX, double maxY, bool solid) {
         Shape s;
@@ -62,7 +70,7 @@ struct Shape {
     }
 };
 
-// Does the wave's square hitbox (centre cx,cy, half-size `half`) overlap the shape?
+// Does the player's square hitbox (centre cx,cy, half-size `half`) overlap the shape?
 // The square is shrunk by a hair so just touching a surface is not a hit.
 inline bool overlaps(Shape const& s, double cx, double cy, double half) {
     double e = std::max(half - 0.01, half * 0.5);
@@ -137,7 +145,8 @@ private:
 };
 
 // ---------------------------------------------------------------------------------------------
-// History: where the player was on the last few physics ticks.
+// History: where the player was on the last physics ticks (kept a little past each click so the
+// after-click motion can be measured).
 // ---------------------------------------------------------------------------------------------
 struct Sample {
     double t = 0, x = 0, y = 0;
@@ -145,13 +154,16 @@ struct Sample {
 
 class History {
 public:
-    void clear() { m_samples.clear(); m_time = 0.0; }
+    void clear() { m_samples.clear(); m_time = 0.0; m_ticks = 0; }
     size_t size() const { return m_samples.size(); }
+    double now() const { return m_time; }
+    long ticks() const { return m_ticks; } // total ticks ever pushed (keeps counting past the cap)
 
     // Call once per physics tick with the tick length and the player's position after the tick.
     void push(double dt, double x, double y) {
         if (!(dt > 0.0)) return;
         m_time += dt;
+        m_ticks++;
         m_samples.push_back({m_time, x, y});
         while (m_samples.size() > 2 && m_samples.back().t - m_samples.front().t > kKeepSeconds) {
             m_samples.pop_front();
@@ -161,6 +173,20 @@ public:
     Sample const& last() const { return m_samples.back(); }
     Sample const& at(size_t fromEnd) const { return m_samples[m_samples.size() - 1 - fromEnd]; }
     double span() const { return m_samples.size() < 2 ? 0.0 : m_samples.back().t - m_samples.front().t; }
+
+    // Index of the sample closest in time to `t` (or -1 if empty).
+    int indexAt(double t) const {
+        if (m_samples.empty()) return -1;
+        int best = 0;
+        double bestd = std::fabs(m_samples[0].t - t);
+        for (size_t i = 1; i < m_samples.size(); i++) {
+            double d = std::fabs(m_samples[i].t - t);
+            if (d < bestd) { bestd = d; best = static_cast<int>(i); }
+        }
+        return best;
+    }
+
+    Sample const& sample(int i) const { return m_samples[i]; }
 
     // Position at time t (straight line between ticks, clamped to what we have).
     Vec positionAt(double t) const {
@@ -178,96 +204,128 @@ public:
         return {m_samples.front().x, m_samples.front().y};
     }
 
-    static constexpr double kKeepSeconds = 0.25;
+    static constexpr double kKeepSeconds = 0.35;
 
 private:
     std::deque<Sample> m_samples;
     double m_time = 0.0;
+    long m_ticks = 0;
 };
 
 // ---------------------------------------------------------------------------------------------
-// The wave's motion at the moment of a click.
+// The player's motion around a click, read from the recording.
+// Vertical position is modelled as constant acceleration before the click and (a different) constant
+// acceleration after it, which is a good local fit for every gamemode over the short look-ahead.
 // ---------------------------------------------------------------------------------------------
-struct WaveInfo {
+struct Motion {
     bool valid = false;
-    double x0 = 0, y0 = 0;   // position at the click
-    double vx = 0;           // horizontal speed (units per second)
-    double vyBefore = 0;     // vertical speed just before the click (signed; 0 when sliding flat)
-    double slope = 0;        // size of the wave's vertical speed (units per second)
+    bool changed = false;     // did this click actually change the motion? (press that did nothing -> false)
+    double tc = 0;            // click time
+    double xc = 0, yc = 0;    // position at the click
+    double vx = 0;            // horizontal speed (units per second)
+    double vyBefore = 0, aBefore = 0; // vertical speed & acceleration just before the click
+    double vyAfter = 0, aAfter = 0;   // vertical speed & acceleration just after the click
+    bool teleport = false;    // spider-style instant jump
+    double ySwitch = 0;       // where the player ends up right after a teleport
 };
 
-inline WaveInfo waveInfo(History const& h, bool mini) {
-    WaveInfo w;
-    if (h.size() < 2) return w;
+// Fit speed/acceleration from three samples (handles slightly uneven tick lengths).
+// Returns the speed at the LAST of the three and the acceleration across them.
+inline void fitVelAcc(Sample const& p0, Sample const& p1, Sample const& p2,
+                      double& velAtP2, double& acc) {
+    double d01 = p1.t - p0.t, d12 = p2.t - p1.t;
+    double v01 = d01 > 1e-9 ? (p1.y - p0.y) / d01 : 0.0;
+    double v12 = d12 > 1e-9 ? (p2.y - p1.y) / d12 : 0.0;
+    double mid = 0.5 * (d01 + d12);
+    acc = mid > 1e-9 ? (v12 - v01) / mid : 0.0;
+    velAtP2 = v12; // speed over the last step, a good stand-in for the speed at p2
+}
 
-    Sample const& a = h.at(1);
-    Sample const& b = h.at(0);
-    double dt = b.t - a.t;
-    if (!(dt > 0.0)) return w;
+// Build the motion around the click at time `clickTime`. Needs a few samples before and after it,
+// which is why measuring is done a few ticks after the click.
+inline Motion motionFrom(History const& h, double clickTime) {
+    Motion m;
+    if (h.size() < 9) return m;
+    int i = h.indexAt(clickTime);
+    int n = static_cast<int>(h.size());
+    if (i < 4 || i > n - 5) return m; // not enough on one side yet
 
-    w.x0 = b.x;
-    w.y0 = b.y;
-    w.vx = (b.x - a.x) / dt;
-    w.vyBefore = (b.y - a.y) / dt;
-    if (!(w.vx > 1.0)) return w; // not moving forward: nothing to measure
+    Sample const& c = h.sample(i);
+    m.tc = c.t; m.xc = c.x; m.yc = c.y;
 
-    // The wave's vertical speed is the biggest we saw lately (it is smaller on the ticks where
-    // the wave slid along a block).
-    double best = 0.0;
-    size_t n = std::min<size_t>(h.size() - 1, 12);
-    for (size_t i = 0; i < n; i++) {
-        Sample const& p = h.at(i + 1);
-        Sample const& q = h.at(i);
-        double d = q.t - p.t;
-        if (d > 0.0) best = std::max(best, std::fabs((q.y - p.y) / d));
+    // Horizontal speed from a few ticks either side.
+    double dtx = h.sample(i + 2).t - h.sample(i - 2).t;
+    m.vx = dtx > 1e-9 ? (h.sample(i + 2).x - h.sample(i - 2).x) / dtx : 0.0;
+    if (!(m.vx > 1.0)) return m; // not moving forward (or going backwards): nothing to measure
+
+    fitVelAcc(h.sample(i - 4), h.sample(i - 2), h.sample(i), m.vyBefore, m.aBefore);
+    fitVelAcc(h.sample(i), h.sample(i + 2), h.sample(i + 4), m.vyAfter, m.aAfter);
+
+    // Spider-style teleport: a big vertical jump in a single tick right after the click.
+    double step1 = std::fabs(h.sample(i + 1).y - c.y);
+    if (step1 > 40.0) {
+        m.teleport = true;
+        m.ySwitch = h.sample(i + 2).y; // where it lands
+        // Re-read the after-motion from past the teleport.
+        if (i <= n - 7) fitVelAcc(h.sample(i + 2), h.sample(i + 4), h.sample(i + 6), m.vyAfter, m.aAfter);
+        else { m.vyAfter = 0; m.aAfter = m.aBefore; }
     }
-    // Nothing to learn from yet (always flat): normal wave is 45 degrees, mini is steeper.
-    if (best < 1e-3) best = w.vx * (mini ? 2.0 : 1.0);
-    w.slope = best;
 
-    w.valid = true;
-    return w;
+    // Did the click change anything? Compare where the player really went a few ticks later with
+    // where it would have gone if nothing had happened (same speed & acceleration as before).
+    double tL = h.sample(i + 4).t - c.t;
+    double predicted = m.yc + m.vyBefore * tL + 0.5 * m.aBefore * tL * tL;
+    double actual = h.sample(i + 4).y;
+    double dv = std::fabs(m.vyAfter - m.vyBefore);
+    double da = std::fabs(m.aAfter - m.aBefore);
+    // Changed if the path bends away, or the speed/acceleration clearly jumped.
+    m.changed = m.teleport || std::fabs(actual - predicted) > 1.5
+                || dv > 0.15 * m.vx || da > 40.0;
+
+    m.valid = true;
+    return m;
+}
+
+// Counterfactual vertical position: where the player would be at absolute time `t` if the click had
+// happened `delta` seconds later (delta > 0) or earlier (delta < 0).
+inline double counterfactualY(Motion const& m, double t, double delta) {
+    double ts = m.tc + delta; // the shifted click moment
+    if (t <= ts) {
+        double u = t - m.tc; // still doing what it did before the click
+        return m.yc + m.vyBefore * u + 0.5 * m.aBefore * u * u;
+    }
+    double ySwitch = m.teleport ? m.ySwitch
+                                : m.yc + m.vyBefore * delta + 0.5 * m.aBefore * delta * delta;
+    double tau = t - ts;
+    return ySwitch + m.vyAfter * tau + 0.5 * m.aAfter * tau * tau;
 }
 
 // ---------------------------------------------------------------------------------------------
-// The ghost wave.
+// The ghost: fly the counterfactual motion forward and see if it clears everything up to xEnd.
 // ---------------------------------------------------------------------------------------------
+inline bool ghostSurvives(std::vector<Shape const*> const& shapes, Motion const& m,
+                          double half, double xEnd, double delta, double step) {
+    double tStart = m.tc + std::min(delta, 0.0);
+    double t = tStart;
+    double x = m.xc + m.vx * (tStart - m.tc);
+    double y = counterfactualY(m, t, delta);
+    double yPrev = y;
 
-// Would the wave survive if the click had happened `delta` seconds later (delta > 0) or
-// earlier (delta < 0) than it really did? It flies on until it has passed x = xEnd.
-inline bool ghostSurvives(std::vector<Shape const*> const& shapes, History const& h, WaveInfo const& w,
-                          double half, double vyAfter, double xEnd, double delta, double step) {
-    double x, y;
-    double timeInOldDirection;
-    if (delta >= 0.0) {
-        x = w.x0; y = w.y0;
-        timeInOldDirection = delta;
-    }
-    else {
-        Vec p = h.positionAt(h.last().t + delta);
-        x = p.x; y = p.y;
-        timeInOldDirection = 0.0;
-    }
-
-    // Hard stop so a bad input can never loop forever.
     for (int guard = 0; x < xEnd && guard < 20000; guard++) {
-        double dt = step;
-        double vy = vyAfter;
-        if (timeInOldDirection > 1e-12) {
-            dt = std::min(step, timeInOldDirection);
-            timeInOldDirection -= dt;
-            vy = w.vyBefore;
-        }
+        double tn = t + step;
 
         // Move forward. Touching ANYTHING from the side is death.
-        double nx = x + w.vx * dt;
+        double nx = x + m.vx * step;
         for (Shape const* s : shapes) {
             if (overlaps(*s, nx, y, half)) return false;
         }
         x = nx;
 
-        // Move up/down. Hazards kill, blocks stop the movement (the wave slides along them).
-        double ny = y + vy * dt;
+        // Move up/down by as much as the counterfactual motion wants this step. Hazards kill,
+        // blocks stop the vertical movement (the player slides along them).
+        double yWant = counterfactualY(m, tn, delta);
+        double ny = y + (yWant - yPrev);
+        yPrev = yWant;
         bool blocked = false;
         for (Shape const* s : shapes) {
             if (!overlaps(*s, x, ny, half)) continue;
@@ -275,6 +333,8 @@ inline bool ghostSurvives(std::vector<Shape const*> const& shapes, History const
             blocked = true;
         }
         if (!blocked) y = ny;
+
+        t = tn;
     }
     return true;
 }
@@ -287,54 +347,41 @@ struct Window {
 };
 
 // Finds the range of click times that survive. Assumes that range is one piece.
-inline Window measureWindow(std::vector<Shape const*> const& shapes, History const& h, WaveInfo const& w,
-                            double half, double vyAfter, double xEnd, double maxShift, double step) {
+inline Window measureWindow(std::vector<Shape const*> const& shapes, Motion const& m,
+                            double half, double xEnd, double maxShift, double step) {
     Window win;
-    double maxEarly = std::min(maxShift, h.span());   // we can only look back as far as we remember
+    double maxEarly = maxShift;
 
-    auto ok = [&](double delta) { return ghostSurvives(shapes, h, w, half, vyAfter, xEnd, delta, step); };
-
-    // The search for a first surviving click time can be a bit coarser (it only has to find ANY).
-    auto okCoarse = [&](double delta) { return ghostSurvives(shapes, h, w, half, vyAfter, xEnd, delta, step * 2.0); };
+    auto ok = [&](double delta) { return ghostSurvives(shapes, m, half, xEnd, delta, step); };
 
     // 1. Find any click time that survives, starting with the real one.
     double seed = 0.0;
     bool found = ok(0.0);
-    for (int i = 1; !found && i <= 40; i++) {
-        double later = maxShift * i / 40.0;
-        double earlier = -maxEarly * i / 40.0;
-        if (okCoarse(later) && ok(later)) { seed = later; found = true; }
-        else if (maxEarly > 0.0 && okCoarse(earlier) && ok(earlier)) { seed = earlier; found = true; }
+    for (int i = 1; !found && i <= 24; i++) {
+        double later = maxShift * i / 24.0;
+        double earlier = -maxEarly * i / 24.0;
+        if (ok(later)) { seed = later; found = true; }
+        else if (maxEarly > 0.0 && ok(earlier)) { seed = earlier; found = true; }
     }
     if (!found) return win; // nothing survives: window of 0
 
-    // 2. Walk outwards from it to find both edges.
-    double late;
-    if (ok(maxShift)) { late = maxShift; win.capped = true; }
+    // 2. Walk outwards from it to find both edges (binary search, ~0.015 ms resolution).
+    if (ok(maxShift)) { win.late = maxShift; win.capped = true; }
     else {
         double good = seed, bad = maxShift;
-        for (int i = 0; i < 30; i++) {
-            double mid = 0.5 * (good + bad);
-            (ok(mid) ? good : bad) = mid;
-        }
-        late = good;
+        for (int k = 0; k < 12; k++) { double mid = 0.5 * (good + bad); (ok(mid) ? good : bad) = mid; }
+        win.late = good;
     }
 
-    double early;
-    if (maxEarly <= 0.0) { early = std::min(seed, 0.0); }
-    else if (ok(-maxEarly)) { early = -maxEarly; win.capped = true; }
+    if (maxEarly <= 0.0) { win.early = std::min(seed, 0.0); }
+    else if (ok(-maxEarly)) { win.early = -maxEarly; win.capped = true; }
     else {
         double good = seed, bad = -maxEarly;
-        for (int i = 0; i < 30; i++) {
-            double mid = 0.5 * (good + bad);
-            (ok(mid) ? good : bad) = mid;
-        }
-        early = good;
+        for (int k = 0; k < 12; k++) { double mid = 0.5 * (good + bad); (ok(mid) ? good : bad) = mid; }
+        win.early = good;
     }
 
-    win.early = early;
-    win.late = late;
-    win.seconds = std::max(0.0, late - early);
+    win.seconds = std::max(0.0, win.late - win.early);
     return win;
 }
 
@@ -342,57 +389,75 @@ inline Window measureWindow(std::vector<Shape const*> const& shapes, History con
 // One click, start to finish.
 // ---------------------------------------------------------------------------------------------
 struct ClickResult {
-    bool counted = false;   // false: ignore this click (no hazard close ahead, not a turn, ...)
+    bool counted = false;   // false: ignore this click (no hazard close ahead, nothing changed, ...)
     double seconds = 0.0;   // the window
     bool capped = false;
 };
 
 struct MeasureSettings {
-    double half = 5.0;          // half the wave's hitbox size
+    double half = 5.0;            // half the player's hitbox size
     double hazardDistance = 60.0; // a hazard must be this close ahead (2 blocks) or the click is ignored
-    double lookAhead = 150.0;   // how far ahead (units) the ghost has to survive at most
-    double maxShift = 0.06;     // how far from the real click we search (seconds, each way)
-    double step = 0.0005;       // ghost simulation step (seconds)
+    double lookAhead = 150.0;     // how far ahead (units) the ghost has to survive at most
+    double maxShift = 0.06;       // how far from the real click we search (seconds, each way)
+    double stepUnits = 1.5;       // ghost step, in units of forward travel (coarser = faster)
 };
 
-inline ClickResult measureClick(ShapeIndex const& index, History const& h, bool pressedDown,
-                                bool upsideDown, bool mini, MeasureSettings const& cfg) {
+// `requireChange`: for a press, we skip clicks that changed nothing (buffered / airborne press).
+// For a release of a hold gamemode (ship/robot/wave/swing) the change can be a small bend, so the
+// caller passes false and we trust that it mattered.
+inline ClickResult measureClick(ShapeIndex const& index, History const& h, double clickTime,
+                                bool requireChange, MeasureSettings const& cfg) {
     ClickResult result;
-    WaveInfo w = waveInfo(h, mini);
-    if (!w.valid) return result;
+    Motion m = motionFrom(h, clickTime);
+    if (!m.valid) return result;
+    if (requireChange && !m.changed) return result; // press that did nothing: ignore
 
-    // Holding sends the wave up (down when gravity is flipped), letting go sends it down.
-    double sign = pressedDown ? 1.0 : -1.0;
-    if (upsideDown) sign = -sign;
-    double vyAfter = sign * w.slope;
-    if (w.vyBefore * vyAfter > 0.0) return result; // already going that way: not a turn
-
-    // Everything around the wave that could matter.
+    // Everything around the player that could matter.
     std::vector<Shape const*> around;
-    index.query(w.x0 - 120.0, w.y0 - 500.0, w.x0 + cfg.lookAhead + 100.0, w.y0 + 500.0, around);
+    index.query(m.xc - 120.0, m.yc - 500.0, m.xc + cfg.lookAhead + 100.0, m.yc + 500.0, around);
 
     // Hazards that count: close (distance <= hazardDistance) and not already behind us.
     std::vector<Shape const*> close;
     for (Shape const* s : around) {
-        double dx = std::max({s->minX - w.x0, 0.0, w.x0 - s->maxX});
-        double dy = std::max({s->minY - w.y0, 0.0, w.y0 - s->maxY});
-        if (std::hypot(dx, dy) <= cfg.hazardDistance && s->maxX + cfg.half > w.x0) close.push_back(s);
+        double dx = std::max({s->minX - m.xc, 0.0, m.xc - s->maxX});
+        double dy = std::max({s->minY - m.yc, 0.0, m.yc - s->maxY});
+        if (std::hypot(dx, dy) <= cfg.hazardDistance && s->maxX + cfg.half > m.xc) close.push_back(s);
     }
     if (close.empty()) return result; // regular spam with nothing close: not counted
 
     // The ghost has to get past the closest "wall" of hazards (all that sit at the same spot).
     double firstKey = std::numeric_limits<double>::infinity();
-    for (Shape const* s : close) firstKey = std::min(firstKey, std::max(s->minX, w.x0 - cfg.half));
+    for (Shape const* s : close) firstKey = std::min(firstKey, std::max(s->minX, m.xc - cfg.half));
     double wallEnd = -std::numeric_limits<double>::infinity();
     for (Shape const* s : close) {
-        if (std::max(s->minX, w.x0 - cfg.half) <= firstKey + 1.0) wallEnd = std::max(wallEnd, s->maxX);
+        if (std::max(s->minX, m.xc - cfg.half) <= firstKey + 1.0) wallEnd = std::max(wallEnd, s->maxX);
     }
     for (Shape const* s : close) { // anything else that overlaps the wall's width belongs to it
         if (s->minX <= wallEnd) wallEnd = std::max(wallEnd, s->maxX);
     }
-    double xEnd = std::min(wallEnd + cfg.half, w.x0 + cfg.lookAhead);
+    double xEnd = std::min(wallEnd + cfg.half, m.xc + cfg.lookAhead);
 
-    Window win = measureWindow(around, h, w, cfg.half, vyAfter, xEnd, cfg.maxShift, cfg.step);
+    double step = std::max(0.00015, cfg.stepUnits / m.vx); // fixed travel per step -> cheap and stable
+
+    // Only the shapes the ghost can actually reach matter (the rest only slowed it down).
+    std::vector<Shape const*> path;
+    double reach = cfg.maxShift * m.vx + 20.0;
+    for (Shape const* s : around) {
+        if (s->maxX < m.xc - reach || s->minX > xEnd + cfg.half + 1.0) continue;
+        if (s->maxY < m.yc - 260.0 || s->minY > m.yc + 260.0) continue;
+        path.push_back(s);
+    }
+
+    Window win = measureWindow(path, m, cfg.half, xEnd, cfg.maxShift, step);
+    // Nothing survived, even though the player really did click and (usually) live: my model is a
+    // little too strict about the hitbox. Try again with a slightly smaller hitbox before giving up
+    // and calling it a true 0. This is what made normal clicks show up as "0 frames".
+    if (win.seconds <= 0.0) {
+        for (double shrink : {0.85, 0.7}) {
+            Window retry = measureWindow(path, m, cfg.half * shrink, xEnd, cfg.maxShift, step);
+            if (retry.seconds > 0.0) { win = retry; break; }
+        }
+    }
     result.counted = true;
     result.seconds = win.seconds;
     result.capped = win.capped;

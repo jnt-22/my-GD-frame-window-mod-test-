@@ -4,6 +4,8 @@
 #include <Geode/modify/PlayerObject.hpp>
 #include <cmath>
 
+#include <vector>
+
 #include "Hud.hpp"
 #include "WindowMeasure.hpp"
 #include "WindowStats.hpp"
@@ -18,6 +20,18 @@ namespace {
         return tps > 0 ? static_cast<double>(tps) : 240.0;
     }
 
+    // A click waiting to be measured. We measure a few ticks AFTER it so the motion the click
+    // produced (the jump / flip / thrust) is already recorded.
+    struct PendingClick {
+        long tick = 0;          // history tick at the click
+        double time = 0;        // history time at the click
+        double half = 5.0;      // half the player's hitbox then (mini is smaller)
+        bool requireChange = true; // presses must actually change the motion; releases are trusted
+        CCPoint pos{0.f, 0.f};  // where the player was (for the circle)
+    };
+
+    // How many ticks to wait before measuring (the motion fit needs a handful of samples after).
+    constexpr long kMeasureDelayTicks = 7;
 }
 
 // ---------------------------------------------------------------------------
@@ -31,6 +45,7 @@ class $modify(FWCPlayLayer, PlayLayer) {
         fwc::Stats stats;
         fwc::ShapeIndex shapes;        // every hazard and block of the level (built once)
         fwc::History history;          // where the player was on the last physics ticks
+        std::vector<PendingClick> pending; // clicks waiting their few ticks before being measured
     };
 
     // Called once, when the level has finished loading.
@@ -99,26 +114,73 @@ class $modify(FWCPlayLayer, PlayLayer) {
     }
 
     // Called every physics tick with the player's position (see the PlayerObject hook below).
+    // Also the moment we measure any click that has now had enough ticks recorded after it.
     void pushSample(double dt, CCPoint pos) {
         m_fields->history.push(dt, pos.x, pos.y);
+        this->measureReadyClicks();
     }
 
-    // Measures the click that just happened (wave only) and shows the result.
-    void measureAndRecord(bool pressedDown) {
-        auto mod = Mod::get();
+    // 0 cube, 1 ship, 2 ball, 3 ufo, 4 wave, 5 robot, 6 spider, 7 swing (only used for the log).
+    static int p_mode(PlayerObject* p) {
+        if (p->m_isShip) return 1;
+        if (p->m_isBall) return 2;
+        if (p->m_isBird) return 3;
+        if (p->m_isDart) return 4;
+        if (p->m_isRobot) return 5;
+        if (p->m_isSpider) return 6;
+        if (p->m_isSwing) return 7;
+        return 0;
+    }
+
+    // Remember a click to measure a few ticks from now.
+    void queueClick(bool requireChange) {
         auto player = m_player1;
         if (!player) return;
+        auto& q = m_fields->pending;
+        if (q.size() > 16) q.erase(q.begin()); // never let it grow without bound
+        PendingClick pc;
+        pc.tick = m_fields->history.ticks();
+        pc.time = m_fields->history.now();
+        pc.half = 0.5 * Mod::get()->getSettingValue<double>("wave-hitbox") * player->m_vehicleSize;
+        pc.requireChange = requireChange;
+        pc.pos = player->getPosition();
+
+        // Calibration aid: write the game's own player rectangle to the log, once per gamemode/size.
+        // (Geode log: Geode menu -> Logs, or the geode/logs folder.) Used to tune "Player hitbox size".
+        {
+            int mode = p_mode(player);
+            int mini = player->m_vehicleSize < 0.9f ? 1 : 0;
+            static int seen = 0;
+            int bit = 1 << (mode * 2 + mini);
+            if (!(seen & bit)) {
+                seen |= bit;
+                CCRect const& r = player->getObjectRect();
+                log::info("Frame Window Counter: gamemode {} mini={} -> game player rect {} x {} (my half-size {})",
+                          mode, mini, r.size.width, r.size.height, pc.half);
+            }
+        }
+        q.push_back(pc);
+    }
+
+    // Measure every queued click that is old enough, then drop it.
+    void measureReadyClicks() {
+        auto& q = m_fields->pending;
+        if (q.empty()) return;
+        long nowTick = m_fields->history.ticks();
 
         fwc::MeasureSettings cfg;
-        cfg.half = 0.5 * mod->getSettingValue<double>("wave-hitbox") * player->m_vehicleSize;
-        cfg.hazardDistance = mod->getSettingValue<double>("hazard-distance");
+        cfg.hazardDistance = Mod::get()->getSettingValue<double>("hazard-distance");
 
-        bool mini = player->m_vehicleSize < 0.9f;
-        auto result = fwc::measureClick(m_fields->shapes, m_fields->history, pressedDown,
-                                        player->m_isUpsideDown, mini, cfg);
-        if (!result.counted) return; // nothing close ahead, or not a turn: not counted
+        for (size_t i = 0; i < q.size();) {
+            if (nowTick - q[i].tick < kMeasureDelayTicks) { i++; continue; }
+            PendingClick pc = q[i];
+            q.erase(q.begin() + i);
 
-        this->recordWindowFrames(result.seconds * currentTps(), player->getPosition());
+            cfg.half = pc.half;
+            auto result = fwc::measureClick(m_fields->shapes, m_fields->history, pc.time,
+                                            pc.requireChange, cfg);
+            if (result.counted) this->recordWindowFrames(result.seconds * currentTps(), pc.pos);
+        }
     }
 
     // Called at the start of every attempt (after dying, restarting, etc).
@@ -126,6 +188,7 @@ class $modify(FWCPlayLayer, PlayLayer) {
         PlayLayer::resetLevel();
         m_fields->stats.reset();
         m_fields->history.clear();
+        m_fields->pending.clear();
         this->refreshHud();
         if (m_fields->hud) m_fields->hud->hidePopup();
         if (m_fields->markerLayer) m_fields->markerLayer->removeAllChildren(); // circles are per attempt too
@@ -243,9 +306,21 @@ class $modify(FWCBaseGameLayer, GJBaseGameLayer) {
         if (!mod->getSettingValue<bool>("enabled")) return;
         auto layer = static_cast<FWCPlayLayer*>(playLayer);
 
-        // Real measuring: the wave only. Both pressing and letting go turn the wave.
-        if (!m_player1 || !m_player1->m_isDart) return;
-        if (!isPlayer1 && m_gameState.m_isDualMode) return; // only player 1's wave
-        layer->measureAndRecord(down);
+        if (!m_player1) return;
+        if (!isPlayer1 && m_gameState.m_isDualMode) return; // measure player 1 only
+        auto p = m_player1;
+        if (p->m_isDead) return;
+
+        // Hold gamemodes (ship, wave, robot, swing): letting go changes the motion too, so both the
+        // press and the release are measured. This is where robot release timings come from.
+        // Tap gamemodes (cube, ball, UFO, spider): only the press does anything.
+        bool holdMode = p->m_isShip || p->m_isDart || p->m_isRobot || p->m_isSwing;
+        if (!down && !holdMode) return; // release that does nothing: ignore
+
+        // A press might do nothing (buffered, or pressing again while already airborne), so for a
+        // press we only keep clicks that actually changed the motion. A release of a hold gamemode
+        // is trusted to matter (its change can be a small bend we would otherwise miss).
+        bool requireChange = down;
+        layer->queueClick(requireChange);
     }
 };

@@ -8,9 +8,9 @@
 	},
 	"id": "erik.frame-window-counter",
 	"name": "Frame Window Counter",
-	"version": "v0.2.2",
+	"version": "v0.3.0",
 	"developer": "Erik",
-	"description": "Shows how many clicks fall into each frame-window bucket (10+, 8-10, ... 0-1), resets every attempt.",
+	"description": "Shows the frame window (how many frames you had to click) for every gamemode, sorted into buckets, resetting each attempt.",
 	"settings": {
 		"enabled": {
 			"type": "bool",
@@ -48,8 +48,8 @@
 		},
 		"wave-hitbox": {
 			"type": "float",
-			"name": "Wave hitbox size",
-			"description": "Size of the wave's hitbox in units (mini wave is scaled down automatically). Change it if the numbers do not match what you expect.",
+			"name": "Player hitbox size",
+			"description": "Size of the player's kill hitbox in units, used for every gamemode (mini is scaled down automatically). Change it if the numbers do not match what you expect.",
 			"default": 10.0,
 			"min": 2.0,
 			"max": 30.0
