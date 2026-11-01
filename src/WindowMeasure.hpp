@@ -292,11 +292,13 @@ inline Trajectory trajectoryFrom(History const& h, double clickTime, double look
     // straight segment at the next flip; on a cube it ends the arc where it lands. Anything past that
     // is the next click's business, so sliding it would be meaningless (that is what made a wave read
     // as "33 frames": the whole zig-zag of several clicks was being slid as one).
+    bool landed = false;
     {
         double prevStep = t.arc[1].y - t.arc[0].y; // this click's own kick (tick 0 -> 1)
         for (size_t j = 2; j < t.arc.size(); j++) {
             double step = t.arc[j].y - t.arc[j - 1].y;
             if (std::fabs(step - prevStep) > 0.6) {    // a sudden snap: next click, flip, or landing
+                landed = std::fabs(step) < 0.1;        // ended flat -> a landing; still moving -> a flip
                 t.arc.resize(j);                       // keep up to (not including) the snap
                 break;
             }
@@ -305,10 +307,33 @@ inline Trajectory trajectoryFrom(History const& h, double clickTime, double look
     }
     if (t.arc.size() < 2) return t;
 
-    // Did the click change the motion? A real jump snaps the vertical step; a buffered press that did
-    // nothing just keeps the pre-click drift.
-    double vyAfter = t.arc[1].y - t.arc[0].y;
-    t.changed = std::fabs(vyAfter - t.vyPre) > 0.6;        // > ~0.6 units/tick snap
+    // If the segment ended at a FLIP (e.g. a wave tap, still moving) and is short, continue it as a
+    // straight ray in the same direction out to lookAhead. Otherwise sliding a 2-tick wave segment
+    // never reaches the spikes that bound the corridor, and the window reads far too large. For a
+    // jump that LANDED we stop at the landing, since the next click takes over from there.
+    {
+        double endStepY = t.arc.back().y - t.arc[t.arc.size() - 2].y;
+        double covered = t.arc.back().x - t.xc;
+        if (!landed && std::fabs(endStepY) > 0.05 && covered < lookAhead) {
+            Vec last = t.arc.back();
+            int extra = static_cast<int>((lookAhead - covered) / t.dx);
+            for (int e = 1; e <= extra; e++) t.arc.push_back({last.x + e * t.dx, last.y + e * endStepY});
+        }
+    }
+
+    // Did the click change the motion? Compare the AVERAGE vertical step over a few ticks before the
+    // click with a few ticks after. Averaging (instead of one tick each side) means a one-tick timing
+    // offset between the click and the recording can't hide a real flip - which was making genuine
+    // wave presses look like "nothing changed" and get skipped.
+    {
+        double preSum = 0; int preN = 0;
+        for (int k = c - 1; k >= std::max(1, c - 3); k--) { preSum += h.sample(k).y - h.sample(k - 1).y; preN++; }
+        double postSum = 0; int postN = 0;
+        for (size_t j = 1; j < t.arc.size() && j <= 3; j++) { postSum += t.arc[j].y - t.arc[j - 1].y; postN++; }
+        double vyPreAvg  = preN  ? preSum  / preN  : 0.0;
+        double vyPostAvg = postN ? postSum / postN : 0.0;
+        t.changed = std::fabs(vyPostAvg - vyPreAvg) > 0.3;
+    }
 
     t.valid = true;
     return t;
