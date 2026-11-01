@@ -109,6 +109,9 @@ class $modify(FWCPlayLayer, PlayLayer) {
             CCRect const& r = obj->getObjectRect();
             if (r.size.width < 0.5f || r.size.height < 0.5f) continue; // no usable hitbox
             index.add(fwc::Shape::rect(r.getMinX(), r.getMinY(), r.getMaxX(), r.getMaxY(), solid));
+            if (hazards + blocks < 12)
+                log::info("FWC object {}: {} x {} at ({:.0f},{:.0f}) {}", hazards + blocks, r.size.width,
+                          r.size.height, r.getMinX(), r.getMinY(), solid ? "block" : "hazard");
             solid ? blocks++ : hazards++;
         }
 
@@ -143,7 +146,11 @@ class $modify(FWCPlayLayer, PlayLayer) {
         PendingClick pc;
         pc.tick = m_fields->history.ticks();
         pc.time = m_fields->history.now();
-        pc.half = 0.5 * Mod::get()->getSettingValue<double>("hitbox-size") * player->m_vehicleSize;
+        double hb = Mod::get()->getSettingValue<double>("hitbox-size");
+        if (!(hb >= 2.0)) hb = 10.0;                       // a missing/zero setting must never mean "no hitbox"
+        double sz = player->m_vehicleSize;
+        if (!(sz > 0.05f)) sz = 1.0;                       // 0 = not set by the game: treat as normal size
+        pc.half = 0.5 * hb * sz;
         pc.requireChange = requireChange;
         pc.pos = player->getPosition();
 
