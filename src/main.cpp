@@ -382,12 +382,17 @@ class $modify(FWCUILayer, UILayer) {
 // 2.2 - it barely fires - so the player's own update is not where we sample.)
 // ---------------------------------------------------------------------------
 class $modify(FWCBaseGameLayer, GJBaseGameLayer) {
-    void update(float dt) {
-        GJBaseGameLayer::update(dt);
+    // processCommands runs once per physics step (240 times a second at normal speed), unlike update()
+    // which runs once per screen frame. Sampling per step makes the recorded motion exact, so the same
+    // gap always measures the same.
+    void processCommands(float dt, bool isHalfTick, bool isLastTick) {
+        GJBaseGameLayer::processCommands(dt, isHalfTick, isLastTick);
 
         auto playLayer = PlayLayer::get();
         if (!playLayer || static_cast<GJBaseGameLayer*>(playLayer) != static_cast<GJBaseGameLayer*>(this)) return;
         if (!m_player1) return;
+        static int logged = 0;
+        if (logged < 8) { logged++; log::info("FWC step: dt={:.6f} half={} last={}", dt, isHalfTick, isLastTick); }
         static_cast<FWCPlayLayer*>(playLayer)->pushSample(dt, m_player1->getPosition());
     }
 

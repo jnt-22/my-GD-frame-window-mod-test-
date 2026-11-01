@@ -170,6 +170,11 @@ public:
     void clear() { m_samples.clear(); m_time = 0.0; m_ticks = 0; }
     size_t size() const { return m_samples.size(); }
     double now() const { return m_time; }
+    // Average length of one recorded step (seconds); 0 when there are fewer than two samples.
+    double meanDt() const {
+        if (m_samples.size() < 2) return 0.0;
+        return (m_samples.back().t - m_samples.front().t) / static_cast<double>(m_samples.size() - 1);
+    }
     long ticks() const { return m_ticks; } // total ticks ever pushed (keeps counting past the cap)
 
     // Call once per physics tick with the tick length and the player's position after the tick.
@@ -358,6 +363,7 @@ struct Window {
     double early = 0.0;     // earliest surviving click (relative to the real click, seconds)
     double late = 0.0;      // latest surviving click
     bool capped = false;    // hit the search limit: the real window is at least this big
+    bool bothCapped = false; // ... on both sides: nothing limits the click at all
 };
 
 // Finds the range of click times that survive. Assumes that range is one piece.
@@ -397,6 +403,35 @@ inline Window measureWindow(std::vector<Shape const*> const& shapes, Motion cons
     }
 
     win.seconds = std::max(0.0, win.late - win.early);
+    return win;
+}
+
+// Whole-tick version: the game only reacts to a click on a physics tick, so the window is a COUNT of
+// ticks: the click is tried 1, 2, 3 ... ticks earlier and later, and the window is everything from
+// the first to the last tick where the ghost still survives (frame perfect = exactly 1 tick).
+inline Window measureWindowTicks(std::vector<Shape const*> const& shapes, Motion const& m,
+                                 double half, double xEnd, double dtick, int maxK, double step,
+                                 double horizonTime = 1e30) {
+    Window win;
+    auto ok = [&](int k) { return ghostSurvives(shapes, m, half, xEnd, k * dtick, step, horizonTime); };
+
+    int seed = 0;
+    bool found = ok(0);
+    for (int i = 1; !found && i <= maxK; i++) {
+        if (ok(i)) { seed = i; found = true; }
+        else if (ok(-i)) { seed = -i; found = true; }
+    }
+    if (!found) return win;
+
+    int hi = seed, lo = seed;
+    while (hi < maxK && ok(hi + 1)) hi++;
+    while (lo > -maxK && ok(lo - 1)) lo--;
+
+    win.early = lo * dtick;
+    win.late = hi * dtick;
+    win.seconds = (hi - lo + 1) * dtick;
+    win.capped = (hi == maxK) || (lo == -maxK);
+    win.bothCapped = (hi == maxK) && (lo == -maxK);
     return win;
 }
 
@@ -471,25 +506,28 @@ inline ClickResult measureClick(ShapeIndex const& index, History const& h, doubl
         path.push_back(s);
     }
 
-    Window win = measureWindow(path, m, cfg.half, xEnd, cfg.maxShift, step, horizonTime);
+    double dtick = h.meanDt();
+    if (!(dtick > 0.0005 && dtick < 0.05)) dtick = 1.0 / 240.0;
+    int maxK = std::max(2, static_cast<int>(cfg.maxShift / dtick));
+    auto measure = [&](double hs) { return measureWindowTicks(path, m, hs, xEnd, dtick, maxK, step, horizonTime); };
+    Window win = measure(cfg.half);
     // Nothing survived, even though the player really did click and (usually) live: my model is a
     // little too strict about the hitbox. Try again with a slightly smaller hitbox before giving up
     // and calling it a true 0. This is what made normal clicks show up as "0 frames".
-    const double tolerance = 0.002;
+    const double tolerance = 0.5 * dtick;
     auto valid = [&](Window const& w) { return w.seconds > 0.0 && w.early <= tolerance && w.late >= -tolerance; };
     if (!valid(win)) {
         // The real click survived, so a valid window must contain it. Try smaller hitboxes: the
         // slopes / odd shapes I model too strictly then stop killing the ghost.
         for (double shrink : {0.85, 0.7, 0.55, 0.4}) {
-            Window retry = measureWindow(path, m, cfg.half * shrink, xEnd, cfg.maxShift, step, horizonTime);
+            Window retry = measure(cfg.half * shrink);
             if (valid(retry)) { win = retry; break; }
         }
     }
     // The ghost survived the whole search range both ways: nothing the mod can see limits this click
     // (typically slopes, the floor/ceiling, or objects it does not model). Showing the search limit
     // as if it were a real window is misleading, so such a click is not counted (reason 4).
-    double maxEarlyAllowed = cfg.maxShift;
-    if (win.capped && win.early <= -maxEarlyAllowed + 1e-9 && win.late >= cfg.maxShift - 1e-9) {
+    if (win.bothCapped) {
         result.reason = 4;
         result.nearby = result.nearby;
         return result;
