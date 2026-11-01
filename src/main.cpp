@@ -1,7 +1,6 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
-#include <Geode/modify/PlayerObject.hpp>
 #include <cmath>
 
 #include <vector>
@@ -281,22 +280,20 @@ class $modify(FWCPlayLayer, PlayLayer) {
 };
 
 // ---------------------------------------------------------------------------
-// PlayerObject: once per physics tick, remember where the wave is.
-// ---------------------------------------------------------------------------
-class $modify(FWCPlayerObject, PlayerObject) {
-    void update(float dt) {
-        PlayerObject::update(dt);
-
-        auto playLayer = PlayLayer::get();
-        if (!playLayer || playLayer->m_player1 != this) return;
-        static_cast<FWCPlayLayer*>(playLayer)->pushSample(dt, this->getPosition());
-    }
-};
-
-// ---------------------------------------------------------------------------
-// GJBaseGameLayer handles the inputs. We watch the jump button.
+// GJBaseGameLayer is the main game loop. update() runs every frame: that is where we remember
+// where the player is, and where queued clicks get measured. (PlayerObject::update is unreliable in
+// 2.2 - it barely fires - so the player's own update is not where we sample.)
 // ---------------------------------------------------------------------------
 class $modify(FWCBaseGameLayer, GJBaseGameLayer) {
+    void update(float dt) {
+        GJBaseGameLayer::update(dt);
+
+        auto playLayer = PlayLayer::get();
+        if (!playLayer || static_cast<GJBaseGameLayer*>(playLayer) != static_cast<GJBaseGameLayer*>(this)) return;
+        if (!m_player1) return;
+        static_cast<FWCPlayLayer*>(playLayer)->pushSample(dt, m_player1->getPosition());
+    }
+
     void handleButton(bool down, int button, bool isPlayer1) {
         GJBaseGameLayer::handleButton(down, button, isPlayer1);
 
