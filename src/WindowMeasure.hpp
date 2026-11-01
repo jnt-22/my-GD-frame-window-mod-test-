@@ -527,11 +527,8 @@ inline ClickResult measureClick(ShapeIndex const& index, History const& h, doubl
     // The ghost survived the whole search range both ways: nothing the mod can see limits this click
     // (typically slopes, the floor/ceiling, or objects it does not model). Showing the search limit
     // as if it were a real window is misleading, so such a click is not counted (reason 4).
-    if (win.bothCapped) {
-        result.reason = 4;
-        result.nearby = result.nearby;
-        return result;
-    }
+    // A capped window (the ghost survives as far as we bother to search) is shown as "N+", like the
+    // NaN counter's "13+": it is a real, easy click, not something to hide.
     // The player really survived this click, so the real click time (delta 0) MUST lie inside the
     // window. If the measured window is empty or misses 0, my model disagrees with the game (a hazard
     // I misjudge): showing it would be a wrong number, so skip the click (reason 5).

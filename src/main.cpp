@@ -213,23 +213,19 @@ class $modify(FWCPlayLayer, PlayLayer) {
             PendingClick pc = q[i];
             q.erase(q.begin() + i);
 
-            // The window is only valid up to the NEXT real input: after that the player's next
-            // action takes over. If the next click is already queued, stop the ghost at its time.
-            double horizon = 1e30;
-            for (auto const& other : m_fields->pending) {
-                if (other.time > pc.time + 1e-6) horizon = std::min(horizon, other.time);
-            }
-
+            // Each click is measured against the LEVEL GEOMETRY only (the hazard that would actually
+            // kill you), NOT against your next click. That is what the NaN counter does, and it is
+            // why the same gap always gives the same number no matter how you spam around it.
             cfg.half = pc.half;
             auto result = fwc::measureClick(m_fields->shapes, m_fields->history, pc.time,
-                                            pc.requireChange, cfg, horizon);
+                                            pc.requireChange, cfg);
             // Diagnostic: one line per click so we can see where measuring stops.
             // reason: 0 counted, 1 motion invalid, 2 nothing changed, 3 no hazard close ahead.
             log::info("FWC click: shapes={} historySize={} reason={} nearby={} frames={:.2f} press={} half={:.1f} early={:.2f}f late={:.2f}f reach={:.0f}",
                       m_fields->shapes.size(), m_fields->history.size(), result.reason,
                       result.nearby, result.seconds * currentTps(), pc.requireChange, pc.half,
                       result.early * currentTps(), result.late * currentTps(), result.reach);
-            if (result.counted) this->recordWindowFrames(result.seconds * currentTps(), pc.pos);
+            if (result.counted) this->recordWindowFrames(result.seconds * currentTps(), pc.pos, result.capped);
         }
     }
 
@@ -279,7 +275,7 @@ class $modify(FWCPlayLayer, PlayLayer) {
     }
 
     // A ring plus the frame number, drawn at `pos` (level coordinates) in the color of the row.
-    void addMarker(CCPoint pos, double frames) {
+    void addMarker(CCPoint pos, double frames, bool capped) {
         auto layer = m_fields->markerLayer;
         if (!layer) return;
 
@@ -298,7 +294,7 @@ class $modify(FWCPlayLayer, PlayLayer) {
         );
         marker->addChild(ring);
 
-        auto label = CCLabelBMFont::create(fwc::trimNumber(frames).c_str(), "bigFont.fnt");
+        auto label = CCLabelBMFont::create(fwc::frameMarkerLabel(frames, capped).c_str(), "bigFont.fnt");
         label->setScale(0.45f);
         label->setColor(ccColor3B{c.r, c.g, c.b});
         label->setAnchorPoint({0.f, 0.5f});
@@ -315,7 +311,7 @@ class $modify(FWCPlayLayer, PlayLayer) {
 
     // Adds one click whose window was `frames` frames (decimals allowed) at the current TPS setting.
     // `playerPos` is where the player was when you clicked.
-    void recordWindowFrames(double frames, CCPoint playerPos) {
+    void recordWindowFrames(double frames, CCPoint playerPos, bool capped) {
         double tps = currentTps();
         m_fields->stats.add(fwc::framesToMs(frames, tps), tps);
         this->refreshHud();
@@ -328,7 +324,7 @@ class $modify(FWCPlayLayer, PlayLayer) {
         }
 
         if (Mod::get()->getSettingValue<bool>("enabled") && Mod::get()->getSettingValue<bool>("show-circles")) {
-            this->addMarker(playerPos, frames);
+            this->addMarker(playerPos, frames, capped);
         }
 
         // Show the time required to click, then fade it out. The next click restarts this.

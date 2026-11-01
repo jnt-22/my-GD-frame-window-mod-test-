@@ -76,8 +76,20 @@ inline std::string trimNumber(double value, int decimals = 2) {
     return text;
 }
 
+// The label drawn in the circle on the level, NaN-counter style: a whole number of frames, with a
+// trailing "+" when the window is at least this big ("13+"). Windows of 13 frames or more are all
+// shown as "13+", like the reference counter.
+inline std::string frameMarkerLabel(double frames, bool capped) {
+    long n = std::lround(frames);
+    if (n < 0) n = 0;
+    if (capped || n >= 13) return "13+";
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%ld", n);
+    return buf;
+}
+
 // The two popup lines, in the style of your video: "4 FRAMES" and "16.67 MS".
-inline std::string formatFramesLine(double frames) { return trimNumber(frames) + " FRAMES"; }
+inline std::string formatFramesLine(double frames) { return trimNumber(std::round(frames)) + " FRAMES"; }
 inline std::string formatMsLine(double windowMs)   { return trimNumber(windowMs) + " MS"; }
 
 // "41.67MS"
