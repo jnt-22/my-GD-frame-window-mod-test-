@@ -392,6 +392,10 @@ struct ClickResult {
     bool counted = false;   // false: ignore this click (no hazard close ahead, nothing changed, ...)
     double seconds = 0.0;   // the window
     bool capped = false;
+    // Why it was not counted (for the diagnostic log): 0 counted, 1 motion invalid (not enough
+    // history / not moving forward), 2 nothing changed (press ignored), 3 no hazard close ahead.
+    int reason = 1;
+    int nearby = 0;         // how many hazards/blocks were within reach
 };
 
 struct MeasureSettings {
@@ -409,12 +413,13 @@ inline ClickResult measureClick(ShapeIndex const& index, History const& h, doubl
                                 bool requireChange, MeasureSettings const& cfg) {
     ClickResult result;
     Motion m = motionFrom(h, clickTime);
-    if (!m.valid) return result;
-    if (requireChange && !m.changed) return result; // press that did nothing: ignore
+    if (!m.valid) { result.reason = 1; return result; }
+    if (requireChange && !m.changed) { result.reason = 2; return result; } // press that did nothing
 
     // Everything around the player that could matter.
     std::vector<Shape const*> around;
     index.query(m.xc - 120.0, m.yc - 500.0, m.xc + cfg.lookAhead + 100.0, m.yc + 500.0, around);
+    result.nearby = static_cast<int>(around.size());
 
     // Hazards that count: close (distance <= hazardDistance) and not already behind us.
     std::vector<Shape const*> close;
@@ -423,7 +428,7 @@ inline ClickResult measureClick(ShapeIndex const& index, History const& h, doubl
         double dy = std::max({s->minY - m.yc, 0.0, m.yc - s->maxY});
         if (std::hypot(dx, dy) <= cfg.hazardDistance && s->maxX + cfg.half > m.xc) close.push_back(s);
     }
-    if (close.empty()) return result; // regular spam with nothing close: not counted
+    if (close.empty()) { result.reason = 3; return result; } // regular spam with nothing close
 
     // The ghost has to get past the closest "wall" of hazards (all that sit at the same spot).
     double firstKey = std::numeric_limits<double>::infinity();
@@ -458,6 +463,7 @@ inline ClickResult measureClick(ShapeIndex const& index, History const& h, doubl
             if (retry.seconds > 0.0) { win = retry; break; }
         }
     }
+    result.reason = 0;
     result.counted = true;
     result.seconds = win.seconds;
     result.capped = win.capped;

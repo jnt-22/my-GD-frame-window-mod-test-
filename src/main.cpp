@@ -179,6 +179,11 @@ class $modify(FWCPlayLayer, PlayLayer) {
             cfg.half = pc.half;
             auto result = fwc::measureClick(m_fields->shapes, m_fields->history, pc.time,
                                             pc.requireChange, cfg);
+            // Diagnostic: one line per click so we can see where measuring stops.
+            // reason: 0 counted, 1 motion invalid, 2 nothing changed, 3 no hazard close ahead.
+            log::info("FWC click: shapes={} historySize={} reason={} nearby={} frames={:.2f} press={}",
+                      m_fields->shapes.size(), m_fields->history.size(), result.reason,
+                      result.nearby, result.seconds * currentTps(), pc.requireChange);
             if (result.counted) this->recordWindowFrames(result.seconds * currentTps(), pc.pos);
         }
     }
