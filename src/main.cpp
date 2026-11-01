@@ -32,7 +32,7 @@ namespace {
     };
 
     // How many ticks to wait before measuring (the motion fit needs a handful of samples after).
-    constexpr long kMeasureDelayTicks = 7;
+    constexpr long kMeasureDelayTicks = 150; // wait ~0.6s so the whole jump arc is recorded before we measure
 }
 
 // ---------------------------------------------------------------------------
@@ -163,7 +163,7 @@ class $modify(FWCPlayLayer, PlayLayer) {
         auto player = m_player1;
         if (!player) return;
         auto& q = m_fields->pending;
-        if (q.size() > 16) q.erase(q.begin()); // never let it grow without bound
+        if (q.size() > 64) q.erase(q.begin()); // never let it grow without bound (room for the measure delay)
         PendingClick pc;
         pc.tick = m_fields->history.ticks();
         pc.time = m_fields->history.now();
@@ -221,10 +221,10 @@ class $modify(FWCPlayLayer, PlayLayer) {
                                             pc.requireChange, cfg);
             // Diagnostic: one line per click so we can see where measuring stops.
             // reason: 0 counted, 1 motion invalid, 2 nothing changed, 3 no hazard close ahead.
-            log::info("FWC click: shapes={} historySize={} reason={} nearby={} frames={:.2f} press={} half={:.1f} early={:.2f}f late={:.2f}f reach={:.0f}",
-                      m_fields->shapes.size(), m_fields->history.size(), result.reason,
-                      result.nearby, result.seconds * currentTps(), pc.requireChange, pc.half,
-                      result.early * currentTps(), result.late * currentTps(), result.reach);
+            log::info("FWC click: shapes={} reason={} nearby={} frames={:.0f} press={} half={:.1f} lo={:.0f} hi={:.0f} dx={:.3f} reach={:.0f}",
+                      m_fields->shapes.size(), result.reason, result.nearby,
+                      result.seconds * currentTps(), pc.requireChange, pc.half,
+                      result.early, result.late, result.dx, result.reach);
             if (result.counted) this->recordWindowFrames(result.seconds * currentTps(), pc.pos, result.capped);
         }
     }

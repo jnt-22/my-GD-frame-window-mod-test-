@@ -8,7 +8,7 @@
 	},
 	"id": "erik.frame-window-counter",
 	"name": "Frame Window Counter",
-	"version": "v1.3.1",
+	"version": "v1.4.0",
 	"developer": "Erik",
 	"description": "Shows the frame window (how many frames you had to click) for every gamemode, sorted into buckets, resetting each attempt.",
 	"settings": {
