@@ -26,7 +26,6 @@ protected:
     CCLabelBMFont* m_framesLabel = nullptr;
     CCLabelBMFont* m_msLabel = nullptr;
     CCLabelBMFont* m_hzLabel = nullptr;
-    CCLabelBMFont* m_demoLabel = nullptr;
 
     CCLabelBMFont* makeLabel(char const* text, ccColor3B color, float x, float y, bool rightAligned) {
         auto label = CCLabelBMFont::create(text, "bigFont.fnt");
@@ -56,7 +55,6 @@ protected:
         m_framesLabel = makeLabel("0 FRAMES", white, 0.f, footerY, false);
         m_msLabel = makeLabel("0 MS", white, 0.f, footerY - kRowHeight, false);
         m_hzLabel = makeLabel("0Hz", gray, 0.f, footerY - 2.f * kRowHeight, false);
-        m_demoLabel = makeLabel("DEMO DATA", ccColor3B{255, 80, 80}, 0.f, footerY - 3.f * kRowHeight, false);
 
         // The popup starts hidden.
         m_framesLabel->setOpacity(0);
@@ -93,10 +91,9 @@ public:
         m_framesLabel->setPositionY(footerY);
         m_msLabel->setPositionY(footerY - rowHeight);
         m_hzLabel->setPositionY(footerY - 2.f * rowHeight);
-        m_demoLabel->setPositionY(footerY - 3.f * rowHeight);
     }
 
-    void refresh(fwc::Stats const& stats, bool showCounts, bool demo, double scale, int64_t opacityPercent, double rowSpacing) {
+    void refresh(fwc::Stats const& stats, bool showCounts, double scale, int64_t opacityPercent, double rowSpacing) {
         this->setScale(static_cast<float>(scale));
         this->applyRowSpacing(static_cast<float>(rowSpacing));
         GLubyte opacity = toOpacity(opacityPercent);
@@ -107,9 +104,6 @@ public:
             m_counts[i]->setVisible(showCounts);
             m_counts[i]->setString(fmt::format("{}", stats.counts[i]).c_str());
         }
-
-        m_demoLabel->setVisible(demo);
-        m_demoLabel->setOpacity(opacity);
     }
 
     // Click happened: show "N FRAMES" and "X MS" (and optionally the Hz line) right away.
