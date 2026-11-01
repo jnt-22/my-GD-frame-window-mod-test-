@@ -1,11 +1,13 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
+#include <Geode/modify/CCKeyboardDispatcher.hpp>
 #include <cmath>
 
 #include <vector>
 
 #include "Hud.hpp"
+#include "SpacePanel.hpp"
 #include "WindowMeasure.hpp"
 #include "WindowStats.hpp"
 
@@ -45,6 +47,7 @@ class $modify(FWCPlayLayer, PlayLayer) {
         fwc::ShapeIndex shapes;        // every hazard and block of the level (built once)
         fwc::History history;          // where the player was on the last physics ticks
         std::vector<PendingClick> pending; // clicks waiting their few ticks before being measured
+        SpacePanel* panel = nullptr;   // the "\" settings panel, when open
     };
 
     // Called once, when the level has finished loading.
@@ -175,9 +178,16 @@ class $modify(FWCPlayLayer, PlayLayer) {
             PendingClick pc = q[i];
             q.erase(q.begin() + i);
 
+            // The window is only valid up to the NEXT real input: after that the player's next
+            // action takes over. If the next click is already queued, stop the ghost at its time.
+            double horizon = 1e30;
+            for (auto const& other : m_fields->pending) {
+                if (other.time > pc.time + 1e-6) horizon = std::min(horizon, other.time);
+            }
+
             cfg.half = pc.half;
             auto result = fwc::measureClick(m_fields->shapes, m_fields->history, pc.time,
-                                            pc.requireChange, cfg);
+                                            pc.requireChange, cfg, horizon);
             // Diagnostic: one line per click so we can see where measuring stops.
             // reason: 0 counted, 1 motion invalid, 2 nothing changed, 3 no hazard close ahead.
             log::info("FWC click: shapes={} historySize={} reason={} nearby={} frames={:.2f} press={}",
@@ -185,6 +195,21 @@ class $modify(FWCPlayLayer, PlayLayer) {
                       result.nearby, result.seconds * currentTps(), pc.requireChange);
             if (result.counted) this->recordWindowFrames(result.seconds * currentTps(), pc.pos);
         }
+    }
+
+    // Open the "\" panel if closed, close it if open.
+    void togglePanel() {
+        if (m_fields->panel) { this->closePanel(); return; }
+        auto p = SpacePanel::create();
+        if (!p) return;
+        this->addChild(p, 1000);
+        m_fields->panel = p;
+    }
+
+    void closePanel() {
+        if (!m_fields->panel) return;
+        m_fields->panel->removeFromParent();
+        m_fields->panel = nullptr;
     }
 
     // Called at the start of every attempt (after dying, restarting, etc).
@@ -276,6 +301,31 @@ class $modify(FWCPlayLayer, PlayLayer) {
                 mod->getSettingValue<int64_t>("hud-opacity")
             );
         }
+    }
+};
+
+// Hand-off functions the SpacePanel calls (it does not know about FWCPlayLayer).
+namespace fwc {
+    void onSettingsChanged() {
+        if (auto pl = PlayLayer::get()) static_cast<FWCPlayLayer*>(pl)->refreshHud();
+    }
+    void requestClosePanel() {
+        if (auto pl = PlayLayer::get()) static_cast<FWCPlayLayer*>(pl)->closePanel();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The "\" key opens and closes the settings panel (backslash is 0xDC on Windows).
+// ---------------------------------------------------------------------------
+class $modify(FWCKeyboard, CCKeyboardDispatcher) {
+    bool dispatchKeyboardMSG(enumKeyCodes key, bool down, bool repeat, double time) {
+        if (down && !repeat && static_cast<int>(key) == 0xDC) {
+            if (auto pl = PlayLayer::get()) {
+                static_cast<FWCPlayLayer*>(pl)->togglePanel();
+                return true; // we handled it
+            }
+        }
+        return CCKeyboardDispatcher::dispatchKeyboardMSG(key, down, repeat, time);
     }
 };
 

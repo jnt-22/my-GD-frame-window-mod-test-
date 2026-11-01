@@ -304,14 +304,15 @@ inline double counterfactualY(Motion const& m, double t, double delta) {
 // The ghost: fly the counterfactual motion forward and see if it clears everything up to xEnd.
 // ---------------------------------------------------------------------------------------------
 inline bool ghostSurvives(std::vector<Shape const*> const& shapes, Motion const& m,
-                          double half, double xEnd, double delta, double step) {
+                          double half, double xEnd, double delta, double step,
+                          double horizonTime = 1e30) {
     double tStart = m.tc + std::min(delta, 0.0);
     double t = tStart;
     double x = m.xc + m.vx * (tStart - m.tc);
     double y = counterfactualY(m, t, delta);
     double yPrev = y;
 
-    for (int guard = 0; x < xEnd && guard < 20000; guard++) {
+    for (int guard = 0; x < xEnd && t < horizonTime && guard < 20000; guard++) {
         double tn = t + step;
 
         // Move forward. Touching ANYTHING from the side is death.
@@ -348,11 +349,12 @@ struct Window {
 
 // Finds the range of click times that survive. Assumes that range is one piece.
 inline Window measureWindow(std::vector<Shape const*> const& shapes, Motion const& m,
-                            double half, double xEnd, double maxShift, double step) {
+                            double half, double xEnd, double maxShift, double step,
+                            double horizonTime = 1e30) {
     Window win;
     double maxEarly = maxShift;
 
-    auto ok = [&](double delta) { return ghostSurvives(shapes, m, half, xEnd, delta, step); };
+    auto ok = [&](double delta) { return ghostSurvives(shapes, m, half, xEnd, delta, step, horizonTime); };
 
     // 1. Find any click time that survives, starting with the real one.
     double seed = 0.0;
@@ -401,7 +403,7 @@ struct ClickResult {
 struct MeasureSettings {
     double half = 5.0;            // half the player's hitbox size
     double hazardDistance = 60.0; // a hazard must be this close ahead (2 blocks) or the click is ignored
-    double lookAhead = 150.0;     // how far ahead (units) the ghost has to survive at most
+    double lookAhead = 300.0;     // how far ahead (units) the ghost has to survive at most
     double maxShift = 0.06;       // how far from the real click we search (seconds, each way)
     double stepUnits = 1.5;       // ghost step, in units of forward travel (coarser = faster)
 };
@@ -410,15 +412,28 @@ struct MeasureSettings {
 // For a release of a hold gamemode (ship/robot/wave/swing) the change can be a small bend, so the
 // caller passes false and we trust that it mattered.
 inline ClickResult measureClick(ShapeIndex const& index, History const& h, double clickTime,
-                                bool requireChange, MeasureSettings const& cfg) {
+                                bool requireChange, MeasureSettings const& cfg,
+                                double horizonTime = 1e30) {
     ClickResult result;
     Motion m = motionFrom(h, clickTime);
     if (!m.valid) { result.reason = 1; return result; }
     if (requireChange && !m.changed) { result.reason = 2; return result; } // press that did nothing
 
+    // How far ahead the ghost should care about. For a jump (the motion arcs back - acceleration
+    // opposes the launch speed), only until it lands again; a hazard beyond that is cleared by a
+    // LATER click, not this one, so counting it would make the window read far too small or large.
+    // For a flat glide (wave/ship, little acceleration) we use the full look-ahead, and the
+    // horizonTime (the next real click) keeps it honest.
+    double reachDist = cfg.lookAhead;
+    if (m.aAfter != 0.0 && (m.vyAfter / m.aAfter) < 0.0) {       // launches up/down then comes back
+        double tLand = -2.0 * m.vyAfter / m.aAfter;             // time to return to launch height
+        reachDist = std::min(cfg.lookAhead, std::max(50.0, m.vx * tLand * 1.15));
+    }
+    double xEnd = m.xc + reachDist;
+
     // Everything around the player that could matter.
     std::vector<Shape const*> around;
-    index.query(m.xc - 120.0, m.yc - 500.0, m.xc + cfg.lookAhead + 100.0, m.yc + 500.0, around);
+    index.query(m.xc - 120.0, m.yc - 600.0, m.xc + reachDist + 100.0, m.yc + 600.0, around);
     result.nearby = static_cast<int>(around.size());
 
     // Hazards that count: close (distance <= hazardDistance) and not already behind us.
@@ -430,36 +445,24 @@ inline ClickResult measureClick(ShapeIndex const& index, History const& h, doubl
     }
     if (close.empty()) { result.reason = 3; return result; } // regular spam with nothing close
 
-    // The ghost has to get past the closest "wall" of hazards (all that sit at the same spot).
-    double firstKey = std::numeric_limits<double>::infinity();
-    for (Shape const* s : close) firstKey = std::min(firstKey, std::max(s->minX, m.xc - cfg.half));
-    double wallEnd = -std::numeric_limits<double>::infinity();
-    for (Shape const* s : close) {
-        if (std::max(s->minX, m.xc - cfg.half) <= firstKey + 1.0) wallEnd = std::max(wallEnd, s->maxX);
-    }
-    for (Shape const* s : close) { // anything else that overlaps the wall's width belongs to it
-        if (s->minX <= wallEnd) wallEnd = std::max(wallEnd, s->maxX);
-    }
-    double xEnd = std::min(wallEnd + cfg.half, m.xc + cfg.lookAhead);
-
     double step = std::max(0.00015, cfg.stepUnits / m.vx); // fixed travel per step -> cheap and stable
 
-    // Only the shapes the ghost can actually reach matter (the rest only slowed it down).
+    // Only the shapes the ghost can actually reach matter (the rest only slow it down).
     std::vector<Shape const*> path;
-    double reach = cfg.maxShift * m.vx + 20.0;
+    double back = cfg.maxShift * m.vx + 20.0;
     for (Shape const* s : around) {
-        if (s->maxX < m.xc - reach || s->minX > xEnd + cfg.half + 1.0) continue;
-        if (s->maxY < m.yc - 260.0 || s->minY > m.yc + 260.0) continue;
+        if (s->maxX < m.xc - back || s->minX > xEnd + cfg.half + 1.0) continue;
+        if (s->maxY < m.yc - 320.0 || s->minY > m.yc + 320.0) continue;
         path.push_back(s);
     }
 
-    Window win = measureWindow(path, m, cfg.half, xEnd, cfg.maxShift, step);
+    Window win = measureWindow(path, m, cfg.half, xEnd, cfg.maxShift, step, horizonTime);
     // Nothing survived, even though the player really did click and (usually) live: my model is a
     // little too strict about the hitbox. Try again with a slightly smaller hitbox before giving up
     // and calling it a true 0. This is what made normal clicks show up as "0 frames".
     if (win.seconds <= 0.0) {
         for (double shrink : {0.85, 0.7}) {
-            Window retry = measureWindow(path, m, cfg.half * shrink, xEnd, cfg.maxShift, step);
+            Window retry = measureWindow(path, m, cfg.half * shrink, xEnd, cfg.maxShift, step, horizonTime);
             if (retry.seconds > 0.0) { win = retry; break; }
         }
     }
