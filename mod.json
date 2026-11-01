@@ -8,7 +8,7 @@
 	},
 	"id": "erik.frame-window-counter",
 	"name": "Frame Window Counter",
-	"version": "v1.1.2",
+	"version": "v1.2.0",
 	"developer": "Erik",
 	"description": "Shows the frame window (how many frames you had to click) for every gamemode, sorted into buckets, resetting each attempt.",
 	"settings": {
@@ -46,7 +46,7 @@
 			"description": "The wave also dies on the side of blocks, so blocks count as hazards too. Turn off to use only spikes and saws. Takes effect when you enter a level.",
 			"default": true
 		},
-		"wave-hitbox": {
+		"hitbox-size": {
 			"type": "float",
 			"name": "Player hitbox size",
 			"description": "Size of the player's kill hitbox in units, used for every gamemode (mini is scaled down automatically). Change it if the numbers do not match what you expect.",
@@ -59,6 +59,19 @@
 			"name": "Show hardest click",
 			"description": "Off: the popup shows the latest click. On: it shows the smallest window of the attempt.",
 			"default": false
+		},
+		"ding": {
+			"type": "bool",
+			"name": "Ding sound",
+			"description": "Play a short ding every time a click is counted.",
+			"default": true
+		},
+		"ding-volume": {
+			"type": "float",
+			"name": "Ding volume",
+			"default": 0.6,
+			"min": 0.05,
+			"max": 2.0
 		},
 		"show-circles": {
 			"type": "bool",

@@ -82,11 +82,32 @@ class $modify(FWCPlayLayer, PlayLayer) {
         index.clear();
 
         bool includeBlocks = Mod::get()->getSettingValue<bool>("include-blocks");
-        size_t hazards = 0, blocks = 0;
+        size_t hazards = 0, blocks = 0, slopes = 0;
 
         for (auto obj : CCArrayExt<GameObject*>(m_objects)) {
             if (!obj) continue;
             if (obj->m_isNoTouch || obj->m_isDecoration || obj->m_isTrigger) continue;
+
+            // Slopes: a triangle filling half of the object's box. The right angle sits in the corner
+            // that the default slope has at bottom-right, moved by flips and 90-degree turns.
+            if (obj->m_objectType == GameObjectType::Slope) {
+                CCRect const& sr = obj->getObjectRect();
+                if (sr.size.width < 0.5f || sr.size.height < 0.5f) continue;
+                int rx = 1, ry = -1;
+                if (obj->m_isFlipX) rx = -rx;
+                if (obj->m_isFlipY) ry = -ry;
+                int turns = (static_cast<int>(std::lround(obj->getRotation() / 90.f)) % 4 + 4) % 4;
+                for (int i = 0; i < turns; i++) { int nx2 = ry, ny2 = -rx; rx = nx2; ry = ny2; }
+                bool hazardSlope = obj->m_slopeIsHazard;
+                index.add(fwc::Shape::slope(0.5 * (sr.getMinX() + sr.getMaxX()), 0.5 * (sr.getMinY() + sr.getMaxY()),
+                                            0.5 * sr.size.width, 0.5 * sr.size.height, rx, ry, !hazardSlope, 3.0));
+                slopes++;
+                if (slopes <= 6)
+                    log::info("FWC slope {}: {} x {} at ({:.0f},{:.0f}) rot={} flipX={} flipY={} dir={} corner=({},{})",
+                              slopes, sr.size.width, sr.size.height, sr.getMinX(), sr.getMinY(), obj->getRotation(),
+                              obj->m_isFlipX, obj->m_isFlipY, obj->m_slopeDirection, rx, ry);
+                continue;
+            }
 
             bool solid;
             if (obj->m_objectType == GameObjectType::Hazard) solid = false;
@@ -115,7 +136,7 @@ class $modify(FWCPlayLayer, PlayLayer) {
             solid ? blocks++ : hazards++;
         }
 
-        log::info("Frame Window Counter: found {} hazards and {} blocks", hazards, blocks);
+        log::info("Frame Window Counter: found {} hazards, {} blocks and {} slopes", hazards, blocks, slopes);
     }
 
     // Called every physics tick with the player's position (see the PlayerObject hook below).
@@ -291,6 +312,13 @@ class $modify(FWCPlayLayer, PlayLayer) {
         double tps = currentTps();
         m_fields->stats.add(fwc::framesToMs(frames, tps), tps);
         this->refreshHud();
+
+        // A short "ding" every time a click is counted.
+        if (Mod::get()->getSettingValue<bool>("enabled") && Mod::get()->getSettingValue<bool>("ding")) {
+            double vol = Mod::get()->getSettingValue<double>("ding-volume");
+            if (!(vol > 0.0 && vol <= 2.0)) vol = 0.6;
+            FMODAudioEngine::sharedEngine()->playEffect("ding.ogg"_spr, 1.f, 0.f, static_cast<float>(vol));
+        }
 
         if (Mod::get()->getSettingValue<bool>("enabled") && Mod::get()->getSettingValue<bool>("show-circles")) {
             this->addMarker(playerPos, frames);

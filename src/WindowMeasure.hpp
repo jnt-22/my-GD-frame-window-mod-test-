@@ -44,6 +44,7 @@ struct Shape {
     double minX = 0, minY = 0, maxX = 0, maxY = 0;
     bool aligned = true;       // plain axis-aligned rectangle?
     bool solid = false;        // block: the player slides along top/bottom. Hazard: any touch kills.
+    double tol = 0.0;          // slopes: how deep (units) the player may graze the surface without dying
 
     static Shape rect(double minX, double minY, double maxX, double maxY, bool solid) {
         Shape s;
@@ -68,12 +69,24 @@ struct Shape {
         s.solid = solid;
         return s;
     }
+
+    // A right triangle that fills half of the box (centre cx,cy, half sizes hw,hh). (rx,ry) is the
+    // direction (each +-1) of the box corner where the right angle sits. The slope is the diagonal
+    // across the box; players may graze it by `tol` units (sliding along a slope is legal).
+    static Shape slope(double cx, double cy, double hw, double hh, int rx, int ry, bool solid, double tol) {
+        Vec R{cx + rx * hw, cy + ry * hh};
+        Vec A{cx - rx * hw, cy + ry * hh};
+        Vec B{cx + rx * hw, cy - ry * hh};
+        Shape s = quad({R, A, B, B}, solid);
+        s.tol = tol;
+        return s;
+    }
 };
 
 // Does the player's square hitbox (centre cx,cy, half-size `half`) overlap the shape?
 // The square is shrunk by a hair so just touching a surface is not a hit.
 inline bool overlaps(Shape const& s, double cx, double cy, double half) {
-    double e = std::max(half - 0.01, half * 0.5);
+    double e = std::max(half - 0.01 - s.tol, half * 0.4);
     double pMinX = cx - e, pMaxX = cx + e, pMinY = cy - e, pMaxY = cy + e;
     if (pMaxX <= s.minX || pMinX >= s.maxX || pMaxY <= s.minY || pMinY >= s.maxY) return false;
     if (s.aligned) return true;
@@ -397,7 +410,7 @@ struct ClickResult {
     double reach = 0.0;     // how far ahead (units) the ghost had to survive
     bool capped = false;
     // Why it was not counted (for the diagnostic log): 0 counted, 1 motion invalid (not enough
-    // history / not moving forward), 2 nothing changed (press ignored), 3 no hazard close ahead.
+    // history / not moving forward), 2 nothing changed (press ignored), 3 no hazard close ahead, 4 nothing limits the click.
     int reason = 1;
     int nearby = 0;         // how many hazards/blocks were within reach
 };
@@ -467,6 +480,15 @@ inline ClickResult measureClick(ShapeIndex const& index, History const& h, doubl
             Window retry = measureWindow(path, m, cfg.half * shrink, xEnd, cfg.maxShift, step, horizonTime);
             if (retry.seconds > 0.0) { win = retry; break; }
         }
+    }
+    // The ghost survived the whole search range both ways: nothing the mod can see limits this click
+    // (typically slopes, the floor/ceiling, or objects it does not model). Showing the search limit
+    // as if it were a real window is misleading, so such a click is not counted (reason 4).
+    double maxEarlyAllowed = cfg.maxShift;
+    if (win.capped && win.early <= -maxEarlyAllowed + 1e-9 && win.late >= cfg.maxShift - 1e-9) {
+        result.reason = 4;
+        result.nearby = result.nearby;
+        return result;
     }
     result.reason = 0;
     result.counted = true;
