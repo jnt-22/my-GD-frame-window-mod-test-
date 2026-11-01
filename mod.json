@@ -8,7 +8,7 @@
 	},
 	"id": "erik.frame-window-counter",
 	"name": "Frame Window Counter",
-	"version": "v1.2.0",
+	"version": "v1.2.1",
 	"developer": "Erik",
 	"description": "Shows the frame window (how many frames you had to click) for every gamemode, sorted into buckets, resetting each attempt.",
 	"settings": {
@@ -46,12 +46,12 @@
 			"description": "The wave also dies on the side of blocks, so blocks count as hazards too. Turn off to use only spikes and saws. Takes effect when you enter a level.",
 			"default": true
 		},
-		"hitbox-size": {
+		"player-hitbox": {
 			"type": "float",
 			"name": "Player hitbox size",
 			"description": "Size of the player's kill hitbox in units, used for every gamemode (mini is scaled down automatically). Change it if the numbers do not match what you expect.",
 			"default": 10.0,
-			"min": 2.0,
+			"min": 4.0,
 			"max": 30.0
 		},
 		"show-hardest": {

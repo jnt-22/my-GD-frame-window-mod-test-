@@ -91,7 +91,7 @@ public:
     void refresh() {
         auto mod = Mod::get();
         if (m_tpsVal) m_tpsVal->setString(numToStr(mod->getSettingValue<int64_t>("tps")).c_str());
-        if (m_hitVal) m_hitVal->setString(numToStr((int)std::lround(mod->getSettingValue<double>("wave-hitbox"))).c_str());
+        if (m_hitVal) m_hitVal->setString(numToStr((int)std::lround(mod->getSettingValue<double>("player-hitbox"))).c_str());
         setToggle(m_btnCircles, mod->getSettingValue<bool>("show-circles"));
         setToggle(m_btnCounts,  mod->getSettingValue<bool>("show-counts"));
         setToggle(m_btnHz,      mod->getSettingValue<bool>("show-hz"));
@@ -152,9 +152,9 @@ private:
     }
 
     void stepHitbox(double dir) {
-        double v = Mod::get()->getSettingValue<double>("wave-hitbox") + dir;
-        v = std::min(30.0, std::max(2.0, v));
-        Mod::get()->setSettingValue<double>("wave-hitbox", v);
+        double v = Mod::get()->getSettingValue<double>("player-hitbox") + dir;
+        v = std::min(30.0, std::max(4.0, v));
+        Mod::get()->setSettingValue<double>("player-hitbox", v);
     }
 
     static void setToggle(ButtonSprite* b, bool on) {

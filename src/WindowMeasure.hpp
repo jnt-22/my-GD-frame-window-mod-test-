@@ -410,7 +410,7 @@ struct ClickResult {
     double reach = 0.0;     // how far ahead (units) the ghost had to survive
     bool capped = false;
     // Why it was not counted (for the diagnostic log): 0 counted, 1 motion invalid (not enough
-    // history / not moving forward), 2 nothing changed (press ignored), 3 no hazard close ahead, 4 nothing limits the click.
+    // history / not moving forward), 2 nothing changed (press ignored), 3 no hazard close ahead, 4 nothing limits the click, 5 model disagrees with the game.
     int reason = 1;
     int nearby = 0;         // how many hazards/blocks were within reach
 };
@@ -488,6 +488,14 @@ inline ClickResult measureClick(ShapeIndex const& index, History const& h, doubl
     if (win.capped && win.early <= -maxEarlyAllowed + 1e-9 && win.late >= cfg.maxShift - 1e-9) {
         result.reason = 4;
         result.nearby = result.nearby;
+        return result;
+    }
+    // The player really survived this click, so the real click time (delta 0) MUST lie inside the
+    // window. If the measured window is empty or misses 0, my model disagrees with the game (a hazard
+    // I misjudge): showing it would be a wrong number, so skip the click (reason 5).
+    const double tolerance = 0.002;
+    if (win.seconds <= 0.0 || win.early > tolerance || win.late < -tolerance) {
+        result.reason = 5;
         return result;
     }
     result.reason = 0;

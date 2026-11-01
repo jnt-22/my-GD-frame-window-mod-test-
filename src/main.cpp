@@ -167,8 +167,8 @@ class $modify(FWCPlayLayer, PlayLayer) {
         PendingClick pc;
         pc.tick = m_fields->history.ticks();
         pc.time = m_fields->history.now();
-        double hb = Mod::get()->getSettingValue<double>("hitbox-size");
-        if (!(hb >= 2.0)) hb = 10.0;                       // a missing/zero setting must never mean "no hitbox"
+        double hb = Mod::get()->getSettingValue<double>("player-hitbox");
+        if (!(hb >= 4.0)) hb = 10.0;                       // a missing/zero setting must never mean "no hitbox"
         double sz = player->m_vehicleSize;
         if (!(sz > 0.05f)) sz = 1.0;                       // 0 = not set by the game: treat as normal size
         pc.half = 0.5 * hb * sz;
