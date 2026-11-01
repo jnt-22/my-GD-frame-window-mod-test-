@@ -1,7 +1,7 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
-#include <Geode/modify/CCKeyboardDispatcher.hpp>
+#include <Geode/modify/UILayer.hpp>
 #include <cmath>
 
 #include <vector>
@@ -315,17 +315,21 @@ namespace fwc {
 }
 
 // ---------------------------------------------------------------------------
-// The "\" key opens and closes the settings panel (backslash is 0xDC on Windows).
+// The "\" key opens and closes the settings panel. We hook UILayer::keyDown, which the game calls
+// for key presses during a level (CCKeyboardDispatcher::dispatchKeyboardMSG has no Windows address).
+// Backslash is 0xDC (VK_OEM_5); 0xE2 (VK_OEM_102) is the same key on some keyboard layouts.
 // ---------------------------------------------------------------------------
-class $modify(FWCKeyboard, CCKeyboardDispatcher) {
-    bool dispatchKeyboardMSG(enumKeyCodes key, bool down, bool repeat, double time) {
-        if (down && !repeat && static_cast<int>(key) == 0xDC) {
+class $modify(FWCUILayer, UILayer) {
+    void keyDown(enumKeyCodes key, double timestamp) {
+        int k = static_cast<int>(key);
+        log::info("Frame Window Counter v1.1.2: key pressed in level, code {}", k);
+        if (k == 0xDC || k == 0xE2) {
             if (auto pl = PlayLayer::get()) {
                 static_cast<FWCPlayLayer*>(pl)->togglePanel();
-                return true; // we handled it
+                return;
             }
         }
-        return CCKeyboardDispatcher::dispatchKeyboardMSG(key, down, repeat, time);
+        UILayer::keyDown(key, timestamp);
     }
 };
 
